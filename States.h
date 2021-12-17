@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Windows.h>
+
 #include "Main.h"
+#include "Trackers.h"
 
 #include <chrono>
 #include <string>
@@ -10,6 +13,7 @@
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/cudaarithm.hpp>
 #include <opencv2/tracking.hpp>
+#include <opencv2/tracking/tracking_legacy.hpp>
 
 using namespace chrono;
 using namespace std;
@@ -42,6 +46,8 @@ protected:
 	bool popMe = false;
 };
 
+
+
 class StatePaused : public StateBase
 {
 public:
@@ -59,6 +65,8 @@ public:
 	using StateBase::StateBase;
 
 	virtual void Update();
+
+	void EnterState();
 
 	virtual void HandleInput(char c);
 	virtual void AddGui(Mat& frame);
@@ -83,8 +91,8 @@ public:
 	void EnterState();
 	void LeaveState();
 
-	void AddTargetPoints(vector<Point2f>& points);
-	void AddTargetRect(Rect& rect);
+	void AddTargetPoints(vector<Point2f>& intialPoints);
+	void AddTargetRect(Rect& initialRect);
 
 	void HandleInput(char c);
 	void AddGui(Mat& frame);
@@ -106,13 +114,18 @@ public:
 
 	void EnterState();
 
-	void GetPoints(Rect r);
+	void AddPoints(Rect r);
+	void RemovePoints(Rect r);
+	void RenderPoints(Mat& frame);
 	
 	void LeaveState()
 	{
 		if (!returned)
 			failedCallback();
 	}
+
+	void HandleInput(char c);
+	void HandleMouse(int e, int x, int y, int f);
 
 	void AddGui(Mat& frame);
 	string GetName() const { return "AddTracker"; }
@@ -121,39 +134,10 @@ protected:
 	bool returned = false;
 	AddTrackerCallback callback;
 	StateFailedCallback failedCallback;
+	vector<Point2f> intialPoints;
 };
 
-typedef function<void(Rect2f&)> SelectRoiCallback;
-class StateSelectRoi : public StateBase
-{
-public:
-	StateSelectRoi(TrackingWindow* window, string title, SelectRoiCallback callback, StateFailedCallback failedCallback)
-		:StateBase(window), callback(callback), failedCallback(failedCallback), title(title)
-		,p1(-1, -1), p2(-1, -1)
-	{
 
-	}
-
-	void LeaveState()
-	{
-		if (!returned)
-			failedCallback();
-	}
-
-	void HandleMouse(int e, int x, int y, int f);
-	void AddGui(Mat& frame);
-
-	string GetName() const { return "SelectRoi"; }
-
-protected:
-	string title;
-	bool returned = false;
-	SelectRoiCallback callback;
-	StateFailedCallback failedCallback;
-
-	Point2f p1;
-	Point2f p2;
-};
 
 struct PointStatus
 {
@@ -200,14 +184,25 @@ protected:
 
 	Ptr<cuda::SparsePyrLKOpticalFlow> opticalFlowTracker;
 
+	bool initialized = false;
 	bool playing = true;
+
+	float startDistance = 0;
+	float targetDistanceMin = 0;
+	float targetDistanceMax = 0;
+	float position = 0;
+
+	int frameSkip = 2;
 };
 
 
 struct trackerStateStruct
 {
 	Ptr<Tracker> tracker;
-	Rect rect;
+	Ptr<TrackerGpu> trackerGpu;
+	Rect initialRect;
+	Rect trackingWindow;
+	Point lastMove;
 };
 class StateTrackSetTracker : public StatePlaying
 {
@@ -222,6 +217,7 @@ public:
 	void EnterState();
 	void LeaveState();
 	void Update();
+	Rect OffsetRect(Rect r, int width);
 
 	void AddGui(Mat& frame);
 	string GetName() const { return "TrackSetTracker"; }
@@ -229,6 +225,71 @@ public:
 protected:
 	TrackingSet* set;
 	map<TrackingTarget*, trackerStateStruct> trackerStates;
+	int trackingRange = 0;
+	int skipper = 0;
+
+	bool playing = true;
+};
+
+class StateTrackGoturn : public StatePlaying
+{
+public:
+	StateTrackGoturn(TrackingWindow* window, TrackingSet* set)
+		:StatePlaying(window), set(set)
+	{
+
+	}
+
+	void HandleInput(char c);
+	void EnterState();
+	void LeaveState();
+	void Update();
+	Rect OffsetRect(Rect r, int width);
+
+	void AddGui(Mat& frame);
+	string GetName() const { return "TrackGoturn"; }
+
+protected:
+	TrackingSet* set;
+	map<TrackingTarget*, trackerStateStruct> trackerStates;
+	
+	int trackingRange = 100;
+	dnn::Net net;
+	cuda::GpuMat lastFrameGpu;
+
+	bool playing = true;
+};
+
+struct trackGpuState
+{
+	Ptr<TrackerGpu> tracker;
+	Rect initialRect;
+	Rect trackingWindow;
+	Point lastMove;
+};
+class StateTrackGpu : public StatePlaying
+{
+public:
+	StateTrackGpu(TrackingWindow* window, TrackingSet* set)
+		:StatePlaying(window), set(set)
+	{
+
+	}
+
+	void HandleInput(char c);
+	void EnterState();
+	void LeaveState();
+	void Update();
+	Rect OffsetRect(Rect r, int width);
+
+	void AddGui(Mat& frame);
+	string GetName() const { return "TrackGpu"; }
+
+protected:
+	TrackingSet* set;
+	map<TrackingTarget*, trackGpuState> trackerStates;
+	int trackingRange = 0;
+	int skipper = 0;
 
 	bool playing = true;
 };

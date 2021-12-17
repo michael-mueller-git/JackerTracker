@@ -1,93 +1,46 @@
 #include "Main.h"
 #include "TrackingWindow.h"
+#include "VideoSource.h"
 
-/*
-		if (s == STATE_EDIT_SET)
+TrackingTarget::TrackingState& TrackingTarget::InitTracking()
+{
+	trackingState.active = true;
+	trackingState.points.clear();
+	trackingState.currentRect = Rect(0, 0, 0, 0);
+
+	if (trackingType == TrackingTarget::TYPE_POINTS)
+	{
+		for (auto& p : intialPoints)
 		{
-			lastState == STATE_PAUSED;
-
-			assert(selectedSet != nullptr, "Set must be selected");
+			TrackingTarget::PointState ps;
+			ps.active = true;
+			ps.point = p;
+			trackingState.points.push_back(ps);
 		}
+	}
 
-		if (s == STATE_ADD_TRACKING_TARGET)
-		{
-			if (lastState == STATE_DRAW_ROI)
-			{
-				Point pMin(
-					min(p1.x, p2.x),
-					min(p1.y, p2.y)
-				);
+	if (trackingType == TrackingTarget::TYPE_RECT)
+	{
+		trackingState.currentRect = initialRect;
+	}
 
-				Point pMax(
-					max(p1.x, p2.x),
-					max(p1.y, p2.y)
-				);
-
-				Rect roi = Rect(pMin, pMax);
-
-				cuda::GpuMat gpuFrame(outFrame);
-				cuda::GpuMat gpuFrameGray(outFrame);
-				cuda::GpuMat gpuFramePoints(outFrame);
-				cuda::cvtColor(gpuFrame, gpuFrameGray, COLOR_BGR2GRAY);
-
-				Mat mask = Mat::zeros(gpuFrameGray.size(), gpuFrameGray.type());
-				rectangle(mask, roi, Scalar(255, 255, 255), -1);
-				cuda::GpuMat gpuMask(mask);
-
-				Ptr<cuda::CornersDetector> detector = cuda::createGoodFeaturesToTrackDetector(
-					gpuFrameGray.type(),
-					200,
-					0.03,
-					50
-				);
-				detector->detect(gpuFrameGray, gpuFramePoints, gpuMask);
-				gpuFramePoints.download(points);
-			}
-			else {
-				SetState(STATE_DRAW_ROI);
-			}
-		}
-
-		int w = cap.get(CAP_PROP_FRAME_WIDTH);
-
-		rectangle(
-			outFrame,
-			Rect(20, 20, w - 40, 20),
-			Scalar(255, 0, 0),
-			2
-		);
-
-		int xNow = mapValue(CurrentPosition(), 0, GetDuration(), 20, w - 40);
-		line(outFrame, Point(xNow, 20), Point(xNow, 40), Scalar(255, 0, 0), 4);
-
-		for (auto& set : sets)
-		{
-			Scalar c(255, 0, 0);
-			if (&set == selectedSet)
-				c = Scalar(100, 0, 100);
-
-			int xStart = mapValue(set.timeStart, 0, GetDuration(), 20, w - 40);
-			line(outFrame, Point(xStart, 20), Point(xStart, 40), c, 2);
-		}
-
-		outFrameUpdate = true;
-
-*/
+	return trackingState;
+}
 
 void TrackingTarget::Draw(Mat& frame)
 {
 	if (trackingType == TrackingTarget::TYPE_POINTS)
 	{
-		for (auto& p : points)
+		for (auto& p : intialPoints)
 		{
-			circle(frame, p, 4, Scalar(0, 0, 255), 3);
+			circle(frame, p, 4, color, 3);
 		}
 		return;
 	}
 
 	if (trackingType == TrackingTarget::TYPE_RECT)
 	{
-		rectangle(frame, rect, Scalar(0, 0, 255), 3);
+		rectangle(frame, initialRect, color, 3);
 	}
 }
 
@@ -139,15 +92,11 @@ TrackingTarget* TrackingSet::GetTarget(TrackingTarget::TARGET_TYPE type)
 	return &(*it);
 }
 
-long mapValue(long x, long in_min, long in_max, long out_min, long out_max) {
-	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
 void drawGpuPoints(cuda::GpuMat& in, Mat& out, Scalar c)
 {
-	vector<Point2f> points(in.cols);
-	in.download(points);
-	for(auto & p : points)
+	vector<Point2f> intialPoints(in.cols);
+	in.download(intialPoints);
+	for(auto & p : intialPoints)
 	{
 		circle(out, p, 5, c, 4);
 	}
@@ -195,11 +144,16 @@ std::string getImageType(int number)
 	return type.str();
 }
 
+#include "opencv2/cudacodec.hpp"
+
 int main()
 {
 	cout << "Starting" << endl;
 
-	const string fName = "H:\\P\\Vr\\Script\\Videos\\Mine\\DIRTY TALKING SLUT RAM PLAYS WITH SEX MACHINE FANTASIZING ABOUT SUBARU_Yukki Amey_1080p.mp4";
+	const String fName = "H:\\P\\Vr\\Script\\Videos\\Mine\\DIRTY TALKING SLUT RAM PLAYS WITH SEX MACHINE FANTASIZING ABOUT SUBARU_Yukki Amey_1080p.mp4";
+	//const String fName = "C:\\dev\\opencvtest\\build\\Latex_Nurses_Scene_2.mp4";
+	//const String fName = "H:\\P\\Vr\\Script\\Videos\\Fuck\\Best Throat Bulge Deepthroat Ever. I gave my Hubby ASIAN ESCORT as a gift.mp4";
+	
 	TrackingWindow win(
 		fName,
 		30 * 1000
