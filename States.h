@@ -26,7 +26,10 @@ public:
 	StateBase(TrackingWindow* window)
 		:window(window)
 	{
-
+		auto me = this;
+		AddButton("Cancel (q)", [me]() {
+			me->Pop();
+		});
 	}
 
 	virtual void EnterState() {};
@@ -40,6 +43,32 @@ public:
 
 	bool ShouldPop() { return popMe; };
 	void Pop() { popMe = true; };
+	void AddButton(string text, function<void()> onClick)
+	{
+		GuiButton b;
+		b.text = text;
+		b.onClick = onClick;
+
+		b.rect = Rect(
+			40,
+			220 + (buttons.size() * (40 + 20)),
+			230,
+			40
+		);
+
+		buttons.push_back(b);
+	}
+
+	void AddButton(string text, char c)
+	{
+		auto me = this;
+
+		AddButton(text + " (" + c + ")", [me, c]() {
+			me->HandleInput(c);
+		});
+	}
+
+	vector<GuiButton> buttons;
 
 protected:
 	TrackingWindow* window;
@@ -51,10 +80,11 @@ protected:
 class StatePaused : public StateBase
 {
 public:
-	using StateBase::StateBase;
+	StatePaused(TrackingWindow* window);
 
 	void HandleInput(char c);
 	void AddGui(Mat& frame);
+	void HandleMouse(int e, int x, int y, int f);
 
 	string GetName() const { return "Paused"; }
 };
@@ -82,19 +112,13 @@ protected:
 class StateEditSet : public StateBase
 {
 public:
-	StateEditSet(TrackingWindow* window, TrackingSet* set)
-		:StateBase(window),set(set)
-	{
-
-	}
+	StateEditSet(TrackingWindow* window, TrackingSet* set);
 
 	void EnterState();
 	void LeaveState();
 
-	void AddTargetPoints(vector<Point2f>& intialPoints);
-	void AddTargetRect(Rect& initialRect);
-
 	void HandleInput(char c);
+	void HandleMouse(int e, int x, int y, int f);
 	void AddGui(Mat& frame);
 	string GetName() const { return "EditSet"; }
 
@@ -102,21 +126,23 @@ protected:
 	TrackingSet* set;
 };
 
-typedef function<void(vector<Point2f>&)> AddTrackerCallback;
+enum DRAGGING_BUTTON
+{
+	BUTTON_NONE,
+	BUTTON_LEFT,
+	BUTTON_RIGHT
+};
+
+typedef function<void(TrackingTarget t)> AddTrackerCallback;
 class StateAddTracker : public StateBase
 {
 public:
-	StateAddTracker(TrackingWindow* window, AddTrackerCallback callback, StateFailedCallback failedCallback)
-		:StateBase(window), callback(callback), failedCallback(failedCallback)
-	{
-
-	}
+	StateAddTracker(TrackingWindow* window, AddTrackerCallback callback, StateFailedCallback failedCallback);
 
 	void EnterState();
 
 	void AddPoints(Rect r);
 	void RemovePoints(Rect r);
-	void RenderPoints(Mat& frame);
 	
 	void LeaveState()
 	{
@@ -134,34 +160,42 @@ protected:
 	bool returned = false;
 	AddTrackerCallback callback;
 	StateFailedCallback failedCallback;
-	vector<Point2f> intialPoints;
+
+	Point2f clickStartPosition;
+	Point2f draggingPosition;
+
+	bool dragging = false;
+	bool draggingRect = false;
+	DRAGGING_BUTTON draggingBtn = BUTTON_NONE;
+
+	TrackingTarget newTarget;
 };
 
-
-
-struct PointStatus
-{
-	bool status;
-	Point2f lastPosition;
-	int cudaIndex;
-	int cudaIndexNew;
-	const int originalIndex;
-};
-
-struct gpuFrameStruct
-{
-	cuda::GpuMat gpuPointsOld;
-	cuda::GpuMat gpuPointsNew;
-	cuda::GpuMat gpuPointsStatus;
-	cuda::GpuMat gpuReduced;
-	Point2f center;
-	vector<PointStatus> pointStatus;
-};
-
-class StateTrackSetPyrLK : public StatePlaying
+class StateTracking : public StatePlaying
 {
 public:
-	StateTrackSetPyrLK(TrackingWindow* window, TrackingSet* set)
+	struct trackerBinding
+	{
+		trackerBinding(TrackingTarget* target, TrackingTarget::TrackingState* state, TrackerJT* tracker)
+			:target(target), state(state), tracker(tracker)
+		{
+
+		};
+
+		~trackerBinding()
+		{
+			delete tracker;
+			delete state;
+		}
+
+		TrackingTarget* target;
+		TrackerJT* tracker;
+		TrackingTarget::TrackingState* state;
+		time_point<steady_clock> lastUpdate;
+		int lastUpdateMs = 0;
+	};
+
+	StateTracking(TrackingWindow* window, TrackingSet* set)
 		:StatePlaying(window), set(set)
 	{
 
@@ -173,123 +207,11 @@ public:
 	void Update();
 
 	void AddGui(Mat& frame);
-	string GetName() const { return "TrackSetPyrLK"; }
+	string GetName() const { return "Tracking"; }
 
 protected:
 	TrackingSet* set;
-
-	cuda::GpuMat gpuFrameOld;
-	cuda::GpuMat gpuFrameNew;
-	map<TrackingTarget*, gpuFrameStruct> gpuMap;
-
-	Ptr<cuda::SparsePyrLKOpticalFlow> opticalFlowTracker;
-
-	bool initialized = false;
-	bool playing = true;
-
-	float startDistance = 0;
-	float targetDistanceMin = 0;
-	float targetDistanceMax = 0;
-	float position = 0;
-
-	int frameSkip = 2;
-};
-
-
-struct trackerStateStruct
-{
-	Ptr<Tracker> tracker;
-	Ptr<TrackerGpu> trackerGpu;
-	Rect initialRect;
-	Rect trackingWindow;
-	Point lastMove;
-};
-class StateTrackSetTracker : public StatePlaying
-{
-public:
-	StateTrackSetTracker(TrackingWindow* window, TrackingSet* set)
-		:StatePlaying(window), set(set)
-	{
-
-	}
-
-	void HandleInput(char c);
-	void EnterState();
-	void LeaveState();
-	void Update();
-	Rect OffsetRect(Rect r, int width);
-
-	void AddGui(Mat& frame);
-	string GetName() const { return "TrackSetTracker"; }
-
-protected:
-	TrackingSet* set;
-	map<TrackingTarget*, trackerStateStruct> trackerStates;
-	int trackingRange = 0;
-	int skipper = 0;
-
-	bool playing = true;
-};
-
-class StateTrackGoturn : public StatePlaying
-{
-public:
-	StateTrackGoturn(TrackingWindow* window, TrackingSet* set)
-		:StatePlaying(window), set(set)
-	{
-
-	}
-
-	void HandleInput(char c);
-	void EnterState();
-	void LeaveState();
-	void Update();
-	Rect OffsetRect(Rect r, int width);
-
-	void AddGui(Mat& frame);
-	string GetName() const { return "TrackGoturn"; }
-
-protected:
-	TrackingSet* set;
-	map<TrackingTarget*, trackerStateStruct> trackerStates;
-	
-	int trackingRange = 100;
-	dnn::Net net;
-	cuda::GpuMat lastFrameGpu;
-
-	bool playing = true;
-};
-
-struct trackGpuState
-{
-	Ptr<TrackerGpu> tracker;
-	Rect initialRect;
-	Rect trackingWindow;
-	Point lastMove;
-};
-class StateTrackGpu : public StatePlaying
-{
-public:
-	StateTrackGpu(TrackingWindow* window, TrackingSet* set)
-		:StatePlaying(window), set(set)
-	{
-
-	}
-
-	void HandleInput(char c);
-	void EnterState();
-	void LeaveState();
-	void Update();
-	Rect OffsetRect(Rect r, int width);
-
-	void AddGui(Mat& frame);
-	string GetName() const { return "TrackGpu"; }
-
-protected:
-	TrackingSet* set;
-	map<TrackingTarget*, trackGpuState> trackerStates;
-	int trackingRange = 0;
-	int skipper = 0;
+	vector<trackerBinding> trackerBindings;
 
 	bool playing = true;
 };

@@ -9,12 +9,50 @@
 #include "SpecUtil.h"
 
 class StateBase;
+class TrackingWindow;
 
 struct RGB {
 	uchar blue;
 	uchar green;
 	uchar red;
 	uchar alpha;
+};
+
+class Timebar
+{
+public:
+	Timebar(TrackingWindow& window);
+	void AddGui(Mat& frame);
+	bool HandleMouse(int e, int x, int y, int f);
+
+	void SelectTrackingSet(TrackingSet* s);
+	TrackingSet* GetSelectedSet() { return selectedSet; }
+	TrackingSet* GetNextSet();
+	TrackingSet* GetPreviousSet();
+
+protected:
+	map<TrackingSet*, Rect> GetSetRects();
+	map<TrackingSet*, Rect> rects;
+	TrackingWindow& window;
+	TrackingSet* selectedSet = nullptr;
+};
+
+class StateStack
+{
+public:
+	StateStack(TrackingWindow& window) 
+		:window(window)
+	{
+	};
+
+	void PushState(StateBase* s);
+	void ReplaceState(StateBase* s);
+	void PopState();
+	StateBase* GetState() { if (stack.size() == 0) return nullptr; return stack.back(); };
+
+protected:
+	vector<StateBase*> stack;
+	TrackingWindow& window;
 };
 
 class TrackingWindow {
@@ -26,22 +64,18 @@ public:
 
 	cuda::GpuMat* GetInFrame() { return &inFrame; };
 	Mat* GetOutFrame() { return &outFrame; };
-
 	void DrawWindow();
+	
 	
 	void Run();
 	void UpdateTrackbar();
 
-	void PushState(StateBase* s);
-	void ReplaceState(StateBase* s);
-	void PopState();
-	StateBase* GetState() { if (stateStack.size() == 0) return nullptr; return stateStack.back(); };
 	TrackingSet* AddSet();
-	void SelectTrackingSet(TrackingSet* s);
-	TrackingSet* GetSelectedSet() { return selectedSet; }
-	TrackingSet* GetNextSet();
-	TrackingSet* GetPreviousSet();
 	void DeleteTrackingSet(TrackingSet* s);
+
+	track_time GetCurrentPosition();
+	track_time GetDuration();
+	void SetPosition(track_time position);
 
 	bool IsPlaying();
 	void SetPlaying(bool playing);
@@ -51,22 +85,27 @@ public:
 	const string windowName = "TrackingWindow";
 	const string spectrumWindowName = "AudioWindow";
 
+	StateStack stack;
+	Project project;
+	Timebar timebar;
+
 protected:
 	static void OnTrackbar(int v, void* p);
 	static void OnClick(int e, int x, int y, int f, void* p);
 
+	bool drawRequested = false;
+	void ReallyDrawWindow();
+
 	void RunOnce();
-	void DrawTimebar();
 	void UpdateAudio();
 
-	void SetPosition(track_time position);
-	track_time GetCurrentPosition();
-	track_time GetDuration();
+	
 	bool isPlaying = false;
 	track_time lastPlayedFrame = 0;
 
 	cuda::GpuMat inFrame;
 	Mat outFrame;
+	
 
 	Ptr<MyVideoSource> videoSource;
 	Ptr<cudacodec::VideoReader> videoReader;
@@ -97,10 +136,7 @@ protected:
 	Mat spectrumDisplay;
 	Mat spectrumInput;
 
-	vector<TrackingSet> sets;
-	vector<StateBase*> stateStack;
 	char lastKey = 0;
-	TrackingSet* selectedSet = nullptr;
 
 	float videoScale = 0.7;
 };

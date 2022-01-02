@@ -15,23 +15,28 @@ using namespace cv;
 class TrackerJT
 {
 public:
-    TrackerJT(TrackingTarget& target, TRACKING_TYPE type);
+    TrackerJT(TrackingTarget& target, TrackingTarget::TrackingState& state, TRACKING_TYPE type, const char* name);
 
     void init(cuda::GpuMat image);
     bool update(cuda::GpuMat image);
+    virtual const char* GetName()
+    {
+        return name;
+    };
 
 protected:
-    virtual void initInternal(cuda::GpuMat image);
-    virtual bool updateInternal(cuda::GpuMat image);
+    virtual void initInternal(cuda::GpuMat image) = 0;
+    virtual bool updateInternal(cuda::GpuMat image) = 0;
 
     TRACKING_TYPE type;
     TrackingTarget::TrackingState& state;
+    const char* name;
 };
 
 class GpuTrackerGOTURN : public TrackerJT
 {  
 public:
-    GpuTrackerGOTURN(TrackingTarget& target);
+    GpuTrackerGOTURN(TrackingTarget& target, TrackingTarget::TrackingState& state);
 
 protected:
 
@@ -42,17 +47,14 @@ protected:
     cuda::GpuMat image_;
 };
 
-
-
 class GpuTrackerPoints : public TrackerJT
 {
 public:
-    GpuTrackerPoints(TrackingTarget& target);
+    GpuTrackerPoints(TrackingTarget& target, TrackingTarget::TrackingState& state);
 
 protected:
     struct PointState
     {
-        Point2f lastPosition;
         int cudaIndex;
         int cudaIndexNew;
     };
@@ -65,4 +67,19 @@ protected:
     map<TrackingTarget::PointState*, PointState> pointStates;
 
     Ptr<cuda::SparsePyrLKOpticalFlow> opticalFlowTracker;
+};
+
+class TrackerOpenCV : public TrackerJT
+{
+public:
+    TrackerOpenCV(TrackingTarget& target, TrackingTarget::TrackingState& state, Ptr<Tracker> tracker, const char* trackerName);
+
+    virtual const char* GetName();
+
+protected:
+    void initInternal(cuda::GpuMat image) override;
+    bool updateInternal(cuda::GpuMat image) override;
+    const char* trackerName;
+
+    Ptr<Tracker> tracker;
 };

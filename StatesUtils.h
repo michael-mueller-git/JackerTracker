@@ -48,11 +48,7 @@ typedef function<void()> ConfirmCallback;
 class StateConfirm : public StateBase
 {
 public:
-	StateConfirm(TrackingWindow* window, string title, ConfirmCallback callback, StateFailedCallback failedCallback)
-		:StateBase(window), callback(callback), failedCallback(failedCallback)
-	{
-
-	}
+	StateConfirm(TrackingWindow* window, string title, ConfirmCallback callback, StateFailedCallback failedCallback);
 
 	void HandleInput(char c);
 	void AddGui(Mat& frame);

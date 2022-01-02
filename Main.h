@@ -7,6 +7,9 @@
 #include <chrono>
 #include "opencv2/opencv.hpp"
 
+#include <json.hpp>
+using json = nlohmann::json;
+
 using namespace std;
 using namespace cv;
 using namespace chrono;
@@ -29,6 +32,7 @@ struct TrackResult {
 };
 
 enum TARGET_TYPE {
+	TYPE_UNKNOWN,
 	TYPE_MALE,
 	TYPE_FEMALE,
 	TYPE_BACKGROUND
@@ -38,7 +42,8 @@ enum TRACKING_TYPE
 {
 	TYPE_NONE,
 	TYPE_POINTS,
-	TYPE_RECT
+	TYPE_RECT,
+	TYPE_BOTH
 };
 
 class TrackingTarget {
@@ -51,10 +56,25 @@ public:
 
 	struct TrackingState
 	{
+		TrackingState(TrackingTarget& parent)
+			:parent(parent)
+		{
+			color = Scalar(
+				(double)std::rand() / RAND_MAX * 255,
+				(double)std::rand() / RAND_MAX * 255,
+				(double)std::rand() / RAND_MAX * 255
+			);
+		}
+
+		Scalar color;
 		vector<PointState> points;
-		Rect currentRect;
-		Point2f currentCenter;
+		Rect rect;
+		Point2f center;
 		bool active = true;
+
+		TrackingTarget& parent;
+
+		void Draw(Mat& frame);
 	};
 
 	TrackingTarget()
@@ -66,19 +86,18 @@ public:
 		);
 	};
 
+	bool SupportsTrackingType(TRACKING_TYPE t);
+	void UpdateType();
 	void Draw(Mat& frame);
 	string GetName();
-	TrackingState& InitTracking();
+	TrackingState* InitTracking();
 
-	string name;
-	TARGET_TYPE targetType;
-	TRACKING_TYPE trackingType;
+	TARGET_TYPE targetType = TARGET_TYPE::TYPE_UNKNOWN;
+	TRACKING_TYPE trackingType = TRACKING_TYPE::TYPE_NONE;
 	Scalar color;
 
 	vector<Point2f> intialPoints;
-	Rect initialRect;
-
-	TrackingState trackingState;
+	Rect2f initialRect;
 };
 
 class TrackingSet {
@@ -89,7 +108,7 @@ public:
 
 	}
 
-	TrackingTarget* GetTarget(TrackingTarget::TARGET_TYPE type);
+	TrackingTarget* GetTarget(TARGET_TYPE type);
 
 	void Draw(Mat& frame);
 
@@ -98,4 +117,42 @@ public:
 
 	track_time timeStart;
 	track_time timeEnd;
+};
+
+struct GuiButton
+{
+	Rect rect;
+	string text;
+	bool hover = false;
+	function<void()> onClick;
+
+	bool IsSelected(int x, int y)
+	{
+		return (
+			x > rect.x&& x < rect.x + rect.width &&
+			y > rect.y&& y < rect.y + rect.height
+		);
+	}
+};
+
+class Project
+{
+public:
+	Project(string video);
+	~Project();
+
+	string GetConfigPath();
+
+	void Load();
+	void Load(json j);
+	void Save();
+	void Save(json &j);
+
+	TrackingSet* AddSet();
+	void DeleteTrackingSet(TrackingSet* s);
+
+	vector<TrackingSet> sets;
+
+protected:
+	string video;
 };

@@ -1,10 +1,15 @@
 #include "StatesUtils.h"
 #include "TrackingWindow.h"
 
+StateConfirm::StateConfirm(TrackingWindow* window, string title, ConfirmCallback callback, StateFailedCallback failedCallback)
+	:StateBase(window), callback(callback), failedCallback(failedCallback)
+{
+	AddButton("Yes", 'y');
+}
+
 void StateConfirm::AddGui(Mat& frame)
 {
 	putText(frame, title, Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-	putText(frame, "No: q", Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 	putText(frame, "Yes: y", Point(30, 420), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 }
 
@@ -24,8 +29,6 @@ void StateConfirm::HandleInput(char c)
 		Pop();
 	}
 }
-
-
 
 
 
@@ -58,8 +61,7 @@ void StateSelectRoi::HandleMouse(int e, int x, int y, int f)
 
 void StateSelectRoi::AddGui(Mat& frame)
 {
-	putText(frame, "Press q to cancel selecting", Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-	putText(frame, title, Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+	putText(frame, title, Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
 	if (p1.x != -1 && p1.y != -1 && p2.x != -1 && p2.y != -1)
 	{

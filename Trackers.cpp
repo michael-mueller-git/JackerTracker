@@ -3,12 +3,13 @@
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/cudaarithm.hpp>
 #include <opencv2/highgui.hpp>
+#include <typeinfo>
 
 // TrackerJT
-TrackerJT::TrackerJT(TrackingTarget& target, TRACKING_TYPE type)
-    :state(target.InitTracking()), type(type)
+TrackerJT::TrackerJT(TrackingTarget& target, TrackingTarget::TrackingState& state, TRACKING_TYPE type, const char* name)
+    :state(state), type(type), name(name)
 {
-    assert(type == target.trackingType);
+    assert(target.SupportsTrackingType(type));
 }
 
 void TrackerJT::init(cuda::GpuMat image)
@@ -26,8 +27,8 @@ bool TrackerJT::update(cuda::GpuMat image)
 
 // GpuTrackerGOTURN
 
-GpuTrackerGOTURN::GpuTrackerGOTURN(TrackingTarget& target)
-    :TrackerJT(target, TRACKING_TYPE::TYPE_RECT)
+GpuTrackerGOTURN::GpuTrackerGOTURN(TrackingTarget& target, TrackingTarget::TrackingState& state)
+    :TrackerJT(target, state, TRACKING_TYPE::TYPE_RECT, __func__)
 {
     type = TRACKING_TYPE::TYPE_RECT;
 
@@ -51,7 +52,7 @@ bool GpuTrackerGOTURN::updateInternal(cuda::GpuMat image)
     cuda::GpuMat curFrame = (cuda::GpuMat)image;
     cuda::GpuMat prevFrame = image_;
     
-    Rect2d prevRect = state.currentRect;
+    Rect2d prevRect = state.rect;
     Rect curRect;
 
     float padTargetPatch = 2.0;
@@ -120,7 +121,7 @@ bool GpuTrackerGOTURN::updateInternal(cuda::GpuMat image)
     curRect.height = cvRound((resMat.at<float>(3) - resMat.at<float>(1)) * targetPatchRect.height / INPUT_SIZE);
 
     // Predicted BB
-    state.currentRect = curRect & Rect(Point(0, 0), image_.size());
+    state.rect = curRect & Rect(Point(0, 0), image_.size());
 
     // Set new model image and BB from current frame
     image_ = ((cuda::GpuMat)image).clone();
@@ -130,26 +131,33 @@ bool GpuTrackerGOTURN::updateInternal(cuda::GpuMat image)
 
 // GpuTrackerPoints
 
-GpuTrackerPoints::GpuTrackerPoints(TrackingTarget& target)
-    :TrackerJT(target, TRACKING_TYPE::TYPE_POINTS)
+GpuTrackerPoints::GpuTrackerPoints(TrackingTarget& target, TrackingTarget::TrackingState& state)
+    :TrackerJT(target, state, TRACKING_TYPE::TYPE_POINTS, __func__)
 {
-
+    opticalFlowTracker = cuda::SparsePyrLKOpticalFlow::create(
+        Size(15, 15),
+        5,
+        30
+    );
 }
 
 void GpuTrackerPoints::initInternal(cuda::GpuMat image)
 {
     image_ = image.clone();
     points_ = cuda::GpuMat(state.points.size());
+    vector<Point2f> points;
 
     for (int p = 0; p < state.points.size(); p++)
     {
         PointState ps;
-        ps.lastPosition = state.points[p].point;
         ps.cudaIndex = p;
         ps.cudaIndexNew = -1;
 
+        points.push_back(state.points.at(p).point);
         pointStates.insert(pair<TrackingTarget::PointState*, PointState>(&state.points[p], ps));
     }
+
+    points_.upload(points);
 }
 
 bool GpuTrackerPoints::updateInternal(cuda::GpuMat image)
@@ -164,22 +172,16 @@ bool GpuTrackerPoints::updateInternal(cuda::GpuMat image)
         pointStatus
     );
 
-    cuda::reduce(points, reduced, 1, REDUCE_AVG);
-    
-    vector<Point2f> center;
-    reduced.download(center);
-    state.currentCenter = center.at(0);
-
     vector<uchar> status(pointStatus.cols);
     pointStatus.download(status);
+
+    vector<Point2f> pointsDL;
+    points.download(pointsDL);
+
     if (find(status.begin(), status.end(), 0) != status.end())
     {
         // We found some errors
         
-        vector<Point2f> pointsDL(points.cols), points_DL(points_.cols);
-        points.download(pointsDL);
-        points_.download(points_DL);
-
         vector<Point2f> trackPointsNew;
 
         for (int p = 0; p < pointsDL.size(); p++)
@@ -187,10 +189,10 @@ bool GpuTrackerPoints::updateInternal(cuda::GpuMat image)
             auto it = find_if(
                 pointStates.begin(),
                 pointStates.end(),
-                [p](PointState& ps) { return ps.cudaIndex == p; }
+                [p](pair<TrackingTarget::PointState*, PointState> ps) { return ps.second.cudaIndex == p; }
             );
 
-            assert(it != kv.second.pointStatus.end());
+            assert(it != pointStates.end());
 
             if (status[p] == 1)
             {
@@ -222,8 +224,45 @@ bool GpuTrackerPoints::updateInternal(cuda::GpuMat image)
         }
     }
 
+    cuda::reduce(points, reduced, 1, REDUCE_AVG);
+
+    vector<Point2f> center;
+    reduced.download(center);
+    state.center = center.at(0);
+
+    for (auto& kv : pointStates)
+    {
+        if(kv.first->active)
+            kv.first->point = pointsDL.at(kv.second.cudaIndex);
+    }
+
     image_ = image.clone();
     points_ = points.clone();
 
     return true;
 }
+
+// TrackerOpenCV
+
+TrackerOpenCV::TrackerOpenCV(TrackingTarget& target, TrackingTarget::TrackingState& state, Ptr<Tracker> tracker, const char* trackerName)
+    :TrackerJT(target, state, TRACKING_TYPE::TYPE_RECT, __func__), tracker(tracker), trackerName(trackerName)
+{
+    
+}
+
+void TrackerOpenCV::initInternal(cuda::GpuMat image)
+{
+    Mat m(image);
+    tracker->init(m, state.rect);
+}
+
+bool TrackerOpenCV::updateInternal(cuda::GpuMat image)
+{
+    Mat m(image);
+    return tracker->update(m, state.rect);
+}
+
+const char* TrackerOpenCV::GetName()
+{
+    return trackerName;
+};

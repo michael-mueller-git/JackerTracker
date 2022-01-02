@@ -30,6 +30,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 	lib/miniaudio
 	lib/spectrogram-opencv/src
 	lib/fftw/api
+	lib/json
 )
 
 list(APPEND FFMPEG_LIBS
