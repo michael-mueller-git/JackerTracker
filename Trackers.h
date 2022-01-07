@@ -12,25 +12,72 @@ using namespace cv;
 
 #include "Main.h"
 
+enum FrameVariant
+{
+    UNKNOWN,
+    GPU_RGBA,
+    GPU_GREY,
+    GPU_RGB,
+    LOCAL_RGB,
+    LOCAL_GREY
+};
+
+class FrameCache
+{
+public:
+
+    void Clear();
+    void Update(void* frame, FrameVariant v);
+    void* GetVariant(FrameVariant v, cuda::Stream& stream = cuda::Stream::Null());
+
+protected:
+    struct someFrame
+    {
+        someFrame(bool isCpu)
+            :isCpu(isCpu)
+        {
+        };
+
+        cuda::GpuMat gpuFrame;
+        Mat cpuFrame;
+
+        bool isCpu = false;
+
+        void* GetPtr()
+        {
+            if (isCpu)
+                return &cpuFrame;
+            else
+                return &gpuFrame;
+        }
+    };
+
+    map<FrameVariant, someFrame> cache;
+
+    void* current = nullptr;
+    FrameVariant currentType = FrameVariant::UNKNOWN;
+};
+
 class TrackerJT
 {
 public:
-    TrackerJT(TrackingTarget& target, TrackingTarget::TrackingState& state, TRACKING_TYPE type, const char* name);
+    TrackerJT(TrackingTarget& target, TrackingTarget::TrackingState& state, TRACKING_TYPE type, const char* name, FrameVariant frameType);
 
-    void init(cuda::GpuMat image);
-    bool update(cuda::GpuMat image);
+    void init();
+    bool update(cuda::Stream& stream = cuda::Stream::Null());
     virtual const char* GetName()
     {
         return name;
     };
 
 protected:
-    virtual void initInternal(cuda::GpuMat image) = 0;
-    virtual bool updateInternal(cuda::GpuMat image) = 0;
+    virtual void initInternal(void* frame) = 0;
+    virtual bool updateInternal(void* frame, cuda::Stream& stream = cuda::Stream::Null()) = 0;
 
     TRACKING_TYPE type;
     TrackingTarget::TrackingState& state;
     const char* name;
+    FrameVariant frameType = FrameVariant::UNKNOWN;
 };
 
 class GpuTrackerGOTURN : public TrackerJT
@@ -40,8 +87,8 @@ public:
 
 protected:
 
-    void initInternal(cuda::GpuMat image) override;
-    bool updateInternal(cuda::GpuMat image) override;
+    void initInternal(void* frame) override;
+    bool updateInternal(void* frame, cuda::Stream& stream) override;
 
     dnn::Net net;
     cuda::GpuMat image_;
@@ -59,8 +106,8 @@ protected:
         int cudaIndexNew;
     };
 
-    void initInternal(cuda::GpuMat image) override;
-    bool updateInternal(cuda::GpuMat image) override;
+    void initInternal(void* frame) override;
+    bool updateInternal(void* frame, cuda::Stream& stream) override;
 
     cuda::GpuMat image_;
     cuda::GpuMat points_;
@@ -77,9 +124,11 @@ public:
     virtual const char* GetName();
 
 protected:
-    void initInternal(cuda::GpuMat image) override;
-    bool updateInternal(cuda::GpuMat image) override;
+    void initInternal(void* frame) override;
+    bool updateInternal(void* frame, cuda::Stream& stream) override;
     const char* trackerName;
 
     Ptr<Tracker> tracker;
 };
+
+extern FrameCache* FRAME_CACHE;

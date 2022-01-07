@@ -9,9 +9,10 @@
 #include <string>
 #include <functional>
 
-#include <opencv2/cudaoptflow.hpp>
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/cudaarithm.hpp>
+#include <opencv2/cudaoptflow.hpp>
+
 #include <opencv2/tracking.hpp>
 #include <opencv2/tracking/tracking_legacy.hpp>
 
@@ -26,15 +27,21 @@ public:
 	StateBase(TrackingWindow* window)
 		:window(window)
 	{
-		auto me = this;
-		AddButton("Cancel (q)", [me]() {
-			me->Pop();
-		});
+		UpdateButtons();
 	}
 
 	virtual void EnterState() {};
 	virtual void LeaveState() {};
 
+	virtual void UpdateButtons() 
+	{
+		auto me = this;
+		buttons.clear();
+
+		AddButton("Cancel (q)", [me]() {
+			me->Pop();
+		});
+	};
 	virtual void AddGui(Mat& frame) { ; }
 	virtual void Update() {};
 	virtual void HandleInput(char c) {};
@@ -43,27 +50,31 @@ public:
 
 	bool ShouldPop() { return popMe; };
 	void Pop() { popMe = true; };
-	void AddButton(string text, function<void()> onClick)
+	GuiButton& AddButton(string text, function<void()> onClick, Rect r)
 	{
 		GuiButton b;
 		b.text = text;
 		b.onClick = onClick;
+		b.rect = r;
 
-		b.rect = Rect(
+		buttons.push_back(b);
+		return buttons.back();
+	}
+	GuiButton& AddButton(string text, function<void()> onClick)
+	{
+		return AddButton(text, onClick, Rect(
 			40,
 			220 + (buttons.size() * (40 + 20)),
 			230,
 			40
-		);
-
-		buttons.push_back(b);
+		));
 	}
 
-	void AddButton(string text, char c)
+	GuiButton& AddButton(string text, char c)
 	{
 		auto me = this;
 
-		AddButton(text + " (" + c + ")", [me, c]() {
+		return AddButton(text + " (" + c + ")", [me, c]() {
 			me->HandleInput(c);
 		});
 	}
@@ -120,6 +131,7 @@ public:
 	void HandleInput(char c);
 	void HandleMouse(int e, int x, int y, int f);
 	void AddGui(Mat& frame);
+	virtual void UpdateButtons() override;
 	string GetName() const { return "EditSet"; }
 
 protected:
@@ -134,33 +146,24 @@ enum DRAGGING_BUTTON
 };
 
 typedef function<void(TrackingTarget t)> AddTrackerCallback;
-class StateAddTracker : public StateBase
+class StateEditTracker : public StateBase
 {
 public:
-	StateAddTracker(TrackingWindow* window, AddTrackerCallback callback, StateFailedCallback failedCallback);
+	StateEditTracker(TrackingWindow* window, TrackingTarget* target);
 
 	void EnterState();
 
 	void AddPoints(Rect r);
 	void RemovePoints(Rect r);
 	
-	void LeaveState()
-	{
-		if (!returned)
-			failedCallback();
-	}
-
 	void HandleInput(char c);
 	void HandleMouse(int e, int x, int y, int f);
 
+	virtual void UpdateButtons() override;
 	void AddGui(Mat& frame);
-	string GetName() const { return "AddTracker"; }
+	string GetName() const { return "EditTracker"; }
 
 protected:
-	bool returned = false;
-	AddTrackerCallback callback;
-	StateFailedCallback failedCallback;
-
 	Point2f clickStartPosition;
 	Point2f draggingPosition;
 
@@ -168,7 +171,7 @@ protected:
 	bool draggingRect = false;
 	DRAGGING_BUTTON draggingBtn = BUTTON_NONE;
 
-	TrackingTarget newTarget;
+	TrackingTarget* target;
 };
 
 class StateTracking : public StatePlaying
@@ -191,15 +194,10 @@ public:
 		TrackingTarget* target;
 		TrackerJT* tracker;
 		TrackingTarget::TrackingState* state;
-		time_point<steady_clock> lastUpdate;
 		int lastUpdateMs = 0;
 	};
 
-	StateTracking(TrackingWindow* window, TrackingSet* set)
-		:StatePlaying(window), set(set)
-	{
-
-	}
+	StateTracking(TrackingWindow* window, TrackingSet* set, bool test);
 
 	void HandleInput(char c);
 	void EnterState();
@@ -210,6 +208,7 @@ public:
 	string GetName() const { return "Tracking"; }
 
 protected:
+	bool test = false;
 	TrackingSet* set;
 	vector<trackerBinding> trackerBindings;
 
@@ -219,15 +218,17 @@ protected:
 class StateTrackResult : public StateBase
 {
 public:
-	StateTrackResult(TrackingWindow* window, string result)
-		:StateBase(window), result(result)
+	StateTrackResult(TrackingWindow* window, TrackingSet* set, string result)
+		:StateBase(window), set(set), result(result)
 	{
 
 	}
 
+	void EnterState();
 	void AddGui(Mat& frame);
 
 	string GetName() const { return "TrackResult"; }
-private:
+protected:
+	TrackingSet* set;
 	string result;
 };

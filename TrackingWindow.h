@@ -3,10 +3,7 @@
 #include <Windows.h>
 
 #include "Main.h"
-#include "VideoSource.h"
-#include "opencv2/cudacodec.hpp"
-
-#include "SpecUtil.h"
+#include "Reader/VideoReader.h"
 
 class StateBase;
 class TrackingWindow;
@@ -31,8 +28,9 @@ public:
 	TrackingSet* GetPreviousSet();
 
 protected:
-	map<TrackingSet*, Rect> GetSetRects();
-	map<TrackingSet*, Rect> rects;
+	map<TrackingSet*, GuiButton> GetButtons();
+	map<TrackingSet*, GuiButton> buttons;
+
 	TrackingWindow& window;
 	TrackingSet* selectedSet = nullptr;
 };
@@ -60,9 +58,9 @@ public:
 	TrackingWindow(string fName, track_time startTime);
 	~TrackingWindow();
 	
-	bool ReadCleanFrame();
+	bool ReadCleanFrame(cuda::Stream& stream = cuda::Stream::Null());
 
-	cuda::GpuMat* GetInFrame() { return &inFrame; };
+	cuda::GpuMat* GetInFrame() { return inFrame; };
 	Mat* GetOutFrame() { return &outFrame; };
 	void DrawWindow();
 	
@@ -79,7 +77,7 @@ public:
 
 	bool IsPlaying();
 	void SetPlaying(bool playing);
-	AVAudioFifo* GetAudioFifo();
+	//AVAudioFifo* GetAudioFifo();
 
 
 	const string windowName = "TrackingWindow";
@@ -94,49 +92,17 @@ protected:
 	static void OnClick(int e, int x, int y, int f, void* p);
 
 	bool drawRequested = false;
-	void ReallyDrawWindow();
+	void ReallyDrawWindow(cuda::Stream& stream = cuda::Stream::Null());
 
 	void RunOnce();
-	void UpdateAudio();
 
-	
+	bool pressingButton = false;
 	bool isPlaying = false;
-	track_time lastPlayedFrame = 0;
 
-	cuda::GpuMat inFrame;
+	cuda::GpuMat* inFrame;
 	Mat outFrame;
-	
-
-	Ptr<MyVideoSource> videoSource;
-	Ptr<cudacodec::VideoReader> videoReader;
-	AVAudioFifo* audioFifoIn;
-	AVAudioFifo* audioFifoOut;
-	spectrum* spec;
-
-	//int spectrumLength = 0;
-	int spectrumWindowSize = 2024;
-	int spectrumWindowOverlap = 300;
-
-	//int spectrumWindowSizeMax = 0;
-	
-	//int spectrumFreqDiv = 30;
-	int spectrumFreqMax = 70;
-	double spectrumValMin = 2;
-	int spectrumValMax = 3;
-
-	int spectrumHeight = 800;
-	int spectrumWidth = 200;
-	int spectrumSamplePosition = 0;
-
-	//int spectrumRangeBottom = 0;
-	//int spectrumRangeTop = spectrumHeight;
-	//int spectrumRangeValueMin = 0;
-	//int spectrumRangeValueMax = spectrumHeight;
-
-	Mat spectrumDisplay;
-	Mat spectrumInput;
+	Ptr<VideoReader> videoReader;
 
 	char lastKey = 0;
-
-	float videoScale = 0.7;
+	float videoScale = 1;
 };

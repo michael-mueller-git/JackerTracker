@@ -1,10 +1,122 @@
 #include "Main.h"
 #include "TrackingWindow.h"
-#include "VideoSource.h"
 
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+
+// TrackingCalculator
+
+TrackingCalculator::TrackingCalculator()
+{
+
+}
+
+bool TrackingCalculator::Update(TrackingSet& set, time_t t)
+{
+	TrackingTarget* maleTarget = set.GetTarget(TARGET_TYPE::TYPE_MALE);
+	TrackingTarget* femaleTarget = set.GetTarget(TARGET_TYPE::TYPE_FEMALE);
+	if (maleTarget == nullptr || femaleTarget == nullptr)
+		return false;
+
+	if (maleTarget->results.count(t) == 0 || femaleTarget->results.count(t) == 0)
+		return true;
+
+	malePoint = maleTarget->results.at(t);
+	femalePoint = femaleTarget->results.at(t);
+
+	float distance = (float)norm(malePoint - femalePoint);
+	
+	if (distanceMin == 0)
+		distanceMin = distance;
+	else
+		distanceMin = min(distanceMin, distance);
+
+	if (distanceMax == 0)
+		distanceMax = distance;
+	else
+		distanceMax = max(distanceMax, distance);
+
+	float newPosition = mapValue<int, float>(distance, distanceMin, distanceMax, 0, 1);
+	float d = position - newPosition;
+
+	if (d < 0 && up)
+	{
+		up = false;
+		events.emplace_back(TrackingEvent::TET_POSITION, t);
+		events.back().position = position;
+	}
+	else if (d > 0 && !up)
+	{
+		up = true;
+
+		events.emplace_back(TrackingEvent::TET_POSITION, t);
+		events.back().position = position;
+	}
+
+	position = newPosition;
+}
+
+void TrackingCalculator::Draw(Mat& frame, time_t t)
+{
+	line(frame, malePoint, femalePoint, Scalar(255, 255, 255), 2);
+
+	int barHeight = 300;
+
+	int barBottom = frame.size().height - barHeight - 30;
+	rectangle(
+		frame,
+		Rect(30, barBottom, 30, barHeight),
+		Scalar(0, 0, 255),
+		2
+	);
+
+	float y = mapValue<float, int>(position, 0, 1, barHeight, 0);
+	rectangle(
+		frame,
+		Rect(30, barBottom - y + barHeight, 30, y),
+		Scalar(0, 255, 0),
+		-1
+	);
+
+	std::vector<TrackingEvent> eventsFiltered;
+	time_t timeFrom = max(0LL, t - 2000);
+	time_t timeTo = t + 2000;
+
+	copy_if(
+		events.begin(),
+		events.end(),
+		back_inserter(eventsFiltered),
+		[timeFrom, timeTo](auto& e) {
+			return e.time >= timeFrom && e.time <= timeTo;
+		}
+	);
+
+	vector<int> xData;
+	vector<float> yData;
+
+	int xCenter = frame.cols / 2;
+
+	Point lastPoint(-1, -1);
+	for (auto& e : eventsFiltered)
+	{
+		if (e.type != TrackingEvent::TET_POSITION)
+			continue;
+
+		int x = mapValue<int, int>(e.time - timeFrom, 0, 4000, 0, frame.cols);
+		int y = mapValue<float, int>(e.position, 0, 1, frame.rows - 300, frame.rows);
+		Point p(x, y);
+
+		if (lastPoint.x != -1)
+		{
+			line(frame, p, lastPoint, Scalar(255, 0, 0), 2);
+		}
+
+		lastPoint = p;
+	}
+
+	
+}
 
 // TrackingState
 
@@ -16,7 +128,7 @@ TrackingTarget::TrackingState* TrackingTarget::InitTracking()
 	trackingState->points.clear();
 	trackingState->rect = Rect(0, 0, 0, 0);
 
-	if (trackingType == TRACKING_TYPE::TYPE_POINTS)
+	if (SupportsTrackingType(TRACKING_TYPE::TYPE_POINTS))
 	{
 		for (auto& p : intialPoints)
 		{
@@ -27,7 +139,7 @@ TrackingTarget::TrackingState* TrackingTarget::InitTracking()
 		}
 	}
 
-	if (trackingType == TRACKING_TYPE::TYPE_RECT)
+	if (SupportsTrackingType(TRACKING_TYPE::TYPE_RECT))
 	{
 		trackingState->rect = initialRect;
 	}
@@ -57,6 +169,11 @@ void TrackingTarget::TrackingState::Draw(Mat& frame)
 		else
 			rectangle(frame, rect, Scalar(255, 0, 0), 3);
 	}
+}
+
+void TrackingTarget::TrackingState::SnapResult(track_time time)
+{
+	parent.results.emplace(pair<time_t, Point2f>(time, center));
 }
 
 // TrackingTarget
@@ -146,6 +263,9 @@ void TrackingSet::Draw(Mat& frame)
 
 TrackingTarget* TrackingSet::GetTarget(TARGET_TYPE type)
 {
+	if (targets.size() == 0)
+		return nullptr;
+
 	auto it = find_if(targets.begin(), targets.end(), [type](TrackingTarget& t) { return t.targetType == type; });
 	if (it == targets.end())
 		return nullptr;
@@ -247,7 +367,8 @@ void Project::Load(json j)
 	{
 		for (auto& s : j["sets"])
 		{
-			TrackingSet set(s["time_start"], s["time_end"]);
+			sets.emplace_back(s["time_start"], s["time_end"]);
+			TrackingSet& set = sets.back();
 			
 			for (auto& t : s["targets"])
 			{
@@ -286,10 +407,22 @@ void Project::Load(json j)
 				else
 					continue;
 
+				if (t["results"].is_array())
+				{
+					for (auto& r : t["results"])
+					{
+						target.results.emplace(pair<time_t, Point2f>(
+							r["time"],
+							Point2f(
+								r["x"],
+								r["y"]
+							)
+						));
+					}
+				}
+
 				set.targets.push_back(target);
 			}
-
-			sets.push_back(set);
 		}
 	}
 }
@@ -359,6 +492,15 @@ void Project::Save(json &j)
 			}
 			else
 				continue;
+
+			target["results"] = json::array();
+			for (auto& r : t.results)
+			{
+				json& result = target["results"][target["results"].size()];
+				result["time"] = r.first;
+				result["x"] = r.second.x;
+				result["y"] = r.second.y;
+			}
 		}
 	}
 }

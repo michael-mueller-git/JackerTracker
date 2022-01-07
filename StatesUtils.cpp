@@ -34,7 +34,7 @@ void StateConfirm::HandleInput(char c)
 
 void StateSelectRoi::HandleMouse(int e, int x, int y, int f)
 {
-	if (p1.x == -1 && p1.y == -1 && e == EVENT_LBUTTONUP)
+	if (p1.x == -1 && p1.y == -1 && e == EVENT_LBUTTONDOWN)
 	{
 		p1.x = x;
 		p1.y = y;
@@ -46,11 +46,18 @@ void StateSelectRoi::HandleMouse(int e, int x, int y, int f)
 		p2.x = x;
 		p2.y = y;
 
-		if (e == EVENT_LBUTTONUP)
+		if (e == EVENT_LBUTTONUP && (abs(p1.x - p2.x) + abs(p1.y - p2.y)) > 5)
 		{
 			Rect2f r(p1, p2);
 			callback(r);
 			returned = true;
+			Pop();
+			return;
+		}
+
+		if (e == EVENT_RBUTTONUP)
+		{
+			failedCallback();
 			Pop();
 			return;
 		}
@@ -65,7 +72,7 @@ void StateSelectRoi::AddGui(Mat& frame)
 
 	if (p1.x != -1 && p1.y != -1 && p2.x != -1 && p2.y != -1)
 	{
-		rectangle(frame, Rect2f(p1, p2), Scalar(255, 0, 0));
+		rectangle(frame, Rect2f(p1, p2), Scalar(255, 0, 0), 2);
 	}
 
 	if (appendGui)
