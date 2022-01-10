@@ -4,6 +4,7 @@
 
 #include "Main.h"
 #include "Reader/VideoReader.h"
+#include "StatesUtils.h"
 
 class StateBase;
 class TrackingWindow;
@@ -15,23 +16,21 @@ struct RGB {
 	uchar alpha;
 };
 
-class Timebar
+class Timebar : public StateBase
 {
 public:
-	Timebar(TrackingWindow& window);
+	Timebar(TrackingWindow* window);
 	void AddGui(Mat& frame);
-	bool HandleMouse(int e, int x, int y, int f);
+	void UpdateButtons(vector<GuiButton>& out);
 
 	void SelectTrackingSet(TrackingSet* s);
 	TrackingSet* GetSelectedSet() { return selectedSet; }
 	TrackingSet* GetNextSet();
 	TrackingSet* GetPreviousSet();
 
-protected:
-	map<TrackingSet*, GuiButton> GetButtons();
-	map<TrackingSet*, GuiButton> buttons;
+	string GetName() const { return "Timebar"; }
 
-	TrackingWindow& window;
+protected:
 	TrackingSet* selectedSet = nullptr;
 };
 
@@ -43,14 +42,18 @@ public:
 	{
 	};
 
+	void ReloadTop();
 	void PushState(StateBase* s);
 	void ReplaceState(StateBase* s);
 	void PopState();
-	StateBase* GetState() { if (stack.size() == 0) return nullptr; return stack.back(); };
+	StateBase* GetState();
+	bool IsDirty() { return dirty; };
 
 protected:
+	MultiState* multiState = nullptr;
 	vector<StateBase*> stack;
 	TrackingWindow& window;
+	bool dirty = false;
 };
 
 class TrackingWindow {
@@ -62,7 +65,7 @@ public:
 
 	cuda::GpuMat* GetInFrame() { return inFrame; };
 	Mat* GetOutFrame() { return &outFrame; };
-	void DrawWindow();
+	void DrawWindow(bool updateButtons = false);
 	
 	
 	void Run();
@@ -73,7 +76,7 @@ public:
 
 	track_time GetCurrentPosition();
 	track_time GetDuration();
-	void SetPosition(track_time position);
+	void SetPosition(track_time position, bool updateTrackbar = true);
 
 	bool IsPlaying();
 	void SetPlaying(bool playing);
@@ -86,11 +89,13 @@ public:
 	StateStack stack;
 	Project project;
 	Timebar timebar;
+	int maxFPS = 120;
 
 protected:
 	static void OnTrackbar(int v, void* p);
 	static void OnClick(int e, int x, int y, int f, void* p);
 
+	bool buttonUpdateRequested = false;
 	bool drawRequested = false;
 	void ReallyDrawWindow(cuda::Stream& stream = cuda::Stream::Null());
 
@@ -102,6 +107,7 @@ protected:
 	cuda::GpuMat* inFrame;
 	Mat outFrame;
 	Ptr<VideoReader> videoReader;
+	vector<GuiButton> buttons;
 
 	char lastKey = 0;
 	float videoScale = 1;

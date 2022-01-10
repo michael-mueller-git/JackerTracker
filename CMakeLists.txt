@@ -11,6 +11,39 @@ find_library(swresample_LIBRARY swresample)
 
 add_subdirectory(lib/fftw)
 
+#Guid start
+	add_library(
+		crossguid STATIC
+		lib/crossguid/src/guid.cpp
+	)
+	
+	set_target_properties(crossguid
+    PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+	)
+	
+	target_include_directories(crossguid PUBLIC lib/crossguid/include)
+
+	if(WIN32)
+		target_compile_definitions(crossguid PRIVATE GUID_WINDOWS)
+	elseif(APPLE)
+		find_library(CFLIB CoreFoundation)
+		target_link_libraries(crossguid ${CFLIB})
+		target_compile_definitions(crossguid PRIVATE GUID_CFUUID)
+	else()
+		find_package(Libuuid REQUIRED)
+		if (NOT LIBUUID_FOUND)
+			message(FATAL_ERROR
+				"You might need to run 'sudo apt-get install uuid-dev' or similar")
+		endif()
+		target_include_directories(crossguid PRIVATE ${LIBUUID_INCLUDE_DIR})
+		target_link_libraries(crossguid ${LIBUUID_LIBRARY})
+		target_compile_definitions(crossguid PRIVATE GUID_LIBUUID)
+	endif()
+#Guid end
+
 add_executable(${PROJECT_NAME}
 	Main.cpp
 	Main.h
@@ -47,6 +80,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 	lib/miniaudio
 	lib/fftw/api
 	lib/json
+	lib/magic_enum/include
 )
 
 set_target_properties(${PROJECT_NAME}
@@ -71,6 +105,7 @@ target_link_libraries(${PROJECT_NAME}
 	cufft
 	cuda
 	nvcuvid
+	crossguid
 )
 
 set(MY_PATH "PATH=${CMAKE_CURRENT_SOURCE_DIR}/lib/ffmpeg/bin;${CMAKE_CURRENT_SOURCE_DIR}/lib/opencv/Build/bin/Debug;C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.5/bin;${CMAKE_CURRENT_SOURCE_DIR}/lib/fftw")

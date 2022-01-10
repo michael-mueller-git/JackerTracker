@@ -8,47 +8,15 @@
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/cudaarithm.hpp>
 
-// StatePaused
+// StatePlayer
 
-StatePaused::StatePaused(TrackingWindow* window)
-	:StateBase(window)
+void StatePlayer::UpdateButtons(vector<GuiButton>& out)
 {
-	AddButton("Add tracking here", 'a');
+	StateBase::UpdateButtons(out);
+	AddButton(out, "Add tracking", '+');
 }
 
-void StatePaused::HandleInput(char c)
-{
-	if (c == ' ')
-	{
-		window->stack.ReplaceState(new StatePlaying(window));
-		return;
-	}
-
-	if (c == 'a')
-	{
-		TrackingSet* s = window->AddSet();
-		if (s != nullptr)
-		{
-			window->stack.PushState(new StateEditSet(window, s));
-		}
-	}
-}
-
-void StatePaused::HandleMouse(int e, int x, int y, int f)
-{
-	window->timebar.HandleMouse(e, x, y, f);
-	if (window->timebar.GetSelectedSet() != nullptr)
-	{
-		window->stack.PushState(new StateEditSet(window, window->timebar.GetSelectedSet()));
-	}
-}
-
-void StatePaused::AddGui(Mat& frame)
-{
-	putText(frame, "Press space to play", Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-}
-
-void StatePlaying::Update()
+void StatePlayer::UpdateFPS()
 {
 	// Calc FPS
 	auto now = high_resolution_clock::now();
@@ -64,42 +32,107 @@ void StatePlaying::Update()
 		timerFrames = 0;
 		timer = now;
 	}
+}
+
+void StatePlayer::Update()
+{
+	if (!playing)
+		return;
+
+	UpdateFPS();
+	SyncFps();
 
 	window->ReadCleanFrame();
 	window->UpdateTrackbar();
 	window->DrawWindow();
 }
 
-void StatePlaying::AddGui(Mat& frame)
+void StatePlayer::AddGui(Mat& frame)
 {
-	putText(frame, "Press q to quit", Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-	putText(frame, format("FPS=%d", drawFps), Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-	putText(frame, "Press space to pause", Point(30, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+	if (playing)
+	{
+		putText(frame, format("FPS=%d", drawFps), Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+		putText(frame, "Press space to pause", Point(30, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+	}
+	else
+		putText(frame, "Press space to play", Point(30, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+
+	auto pos = window->GetCurrentPosition();
+	for (auto& set : window->project.sets)
+	{
+		if (set.timeStart <= pos && set.timeEnd > pos)
+		{
+			if (&set != lastSet)
+			{
+				calculator.Reset();
+				lastSet = &set;
+			}
+
+			calculator.Draw(set, frame, window->GetCurrentPosition(), false, true);
+			break;
+		}
+	}
 }
 
-void StatePlaying::HandleInput(char c)
+bool StatePlayer::HandleInput(char c)
 {
 	if (c == ' ')
-		window->stack.ReplaceState(new StatePaused(window));
+	{
+		playing = !playing;
+		window->SetPlaying(playing);
+		window->DrawWindow(true);
+
+		if (playing)
+		{
+			lastUpdate = high_resolution_clock::now();
+		}
+
+		return true;
+	}
+
+	if (c == '+')
+	{
+		auto s = window->AddSet();
+		window->stack.PushState(new StateEditSet(window, s));
+		return true;
+	}
+
+	return false;
 }
 
-void StatePlaying::EnterState()
+void StatePlayer::EnterState()
 {
-	window->SetPlaying(true);
+	window->SetPlaying(playing);
+}
+
+void StatePlayer::SyncFps()
+{
+	if (window->maxFPS == 0)
+		return;
+
+	auto n = high_resolution_clock::now();
+
+	int deltaMs = duration_cast<chrono::milliseconds>(n - lastUpdate).count();
+	int waitMs = 1000 / window->maxFPS;
+	if (deltaMs < waitMs)
+		this_thread::sleep_for(chrono::milliseconds(waitMs - deltaMs));
+
+	lastUpdate = n;
 }
 
 // StateEditSet
 
 StateEditSet::StateEditSet(TrackingWindow* window, TrackingSet* set)
-	:StateBase(window), set(set)
+	:StatePlayer(window), set(set)
 {
 
 }
 
 void StateEditSet::EnterState()
 {
+	StatePlayer::EnterState();
+
 	window->timebar.SelectTrackingSet(set);
-	UpdateButtons();
 }
 
 void StateEditSet::LeaveState()
@@ -108,28 +141,29 @@ void StateEditSet::LeaveState()
 }
 
 void StateEditSet::AddGui(Mat& frame)
-{	
+{
+	StatePlayer::AddGui(frame);
+
 	putText(frame, format("Num trackers: %i", set->targets.size()), Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
-	int y = 140;
-	for (auto& t : set->targets)
-	{
-		putText(frame, " - " + t.GetName(), Point(30, y), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-		y += 20;
-	}
+	auto pos = window->GetCurrentPosition();
+	bool drawState = false;
+	if (pos == set->timeStart)
+		set->Draw(frame);
+	else
+		drawState = true;
 
-	set->Draw(frame);
+	calculator.Draw(*set, frame, window->GetCurrentPosition(), false, drawState);
 }
 
-void StateEditSet::UpdateButtons()
+void StateEditSet::UpdateButtons(vector<GuiButton>& out)
 {
-	StateBase::UpdateButtons();
+	StateBase::UpdateButtons(out);
 	auto me = this;
 
-	AddButton("Add tracking here", 'a');
-	AddButton("Delete tracking", '-');
-	AddButton("Start tracking", 'l');
-	AddButton("Test tracking", 'p');
+	AddButton(out, "Add tracking here", 'a');
+	AddButton(out, "Delete tracking", '-');
+	AddButton(out, "Start tracking", 'l');
 
 	int y = 220;
 
@@ -139,6 +173,7 @@ void StateEditSet::UpdateButtons()
 	for (int i = 0; i < set->targets.size(); i++)
 	{
 		TrackingTarget* t = &set->targets.at(i);
+		TrackingSet* s = set;
 
 		r = Rect(
 			380,
@@ -148,9 +183,10 @@ void StateEditSet::UpdateButtons()
 		);
 
 		b = &AddButton(
+			out,
 			t->GetName(),
-			[me, t]() {
-				me->window->stack.PushState(new StateEditTracker(me->window, t));
+			[me, s, t]() {
+				me->window->stack.PushState(new StateEditTracker(me->window, s, t));
 			},
 			r
 		);
@@ -165,11 +201,16 @@ void StateEditSet::UpdateButtons()
 		);
 
 		b = &AddButton(
+			out,
 			"X",
 			[me, i]() {
 				auto& tv = me->set->targets;
 				tv.erase(tv.begin() + i);
-				me->UpdateButtons();
+				
+				for (int c = 0; c < tv.size(); c++)
+					tv.at(c).UpdateColor(c);
+
+				me->window->DrawWindow(true);
 			},
 			r
 		);
@@ -185,6 +226,7 @@ void StateEditSet::UpdateButtons()
 	);
 
 	b = &AddButton(
+		out,
 		"Targets (+)",
 		[me]() {
 			me->HandleInput('+');
@@ -195,18 +237,7 @@ void StateEditSet::UpdateButtons()
 	me->window->DrawWindow();
 }
 
-void StateEditSet::HandleMouse(int e, int x, int y, int f)
-{
-	if (e != EVENT_LBUTTONUP)
-		return;
-
-	window->timebar.HandleMouse(e, x, y, f);
-	if (window->timebar.GetSelectedSet() != set)
-		window->stack.ReplaceState(new StateEditSet(window, window->timebar.GetSelectedSet()));
-
-}
-
-void StateEditSet::HandleInput(char c)
+bool StateEditSet::HandleInput(char c)
 {
 	auto window = this->window;
 	auto me = this;
@@ -219,35 +250,33 @@ void StateEditSet::HandleInput(char c)
 		{
 			window->stack.ReplaceState(new StateEditSet(window, s));
 		}
+		return true;
 	}
 
 	if (c == 'l')
 	{
-		window->stack.PushState(new StateTracking(window, set, false));
-		return;
-	}
-
-	if (c == 'p')
-	{
-		window->stack.PushState(new StateTracking(window, set, true));
-		return;
+		window->stack.PushState(new StateTracking(window, set));
+		return true;
 	}
 
 	if (c == '+')
 	{
 		s->targets.emplace_back();
 		TrackingTarget* t = &s->targets.back();
+		t->UpdateColor(s->targets.size());
 
-		if (s->targets.size() == 0)
+		if (s->targets.size() == 1)
 			t->targetType = TARGET_TYPE::TYPE_FEMALE;
-		else if (s->targets.size() == 1)
-			t->targetType = TARGET_TYPE::TYPE_MALE;
 		else if (s->targets.size() == 2)
+			t->targetType = TARGET_TYPE::TYPE_MALE;
+		else if (s->targets.size() == 3)
 			t->targetType = TARGET_TYPE::TYPE_BACKGROUND;
 		else
 			t->targetType = TARGET_TYPE::TYPE_UNKNOWN;
 
-		window->stack.PushState(new StateEditTracker(window, t));
+		window->stack.PushState(new StateEditTracker(window, set, t));
+
+		return true;
 	}
 
 	if (c == '-')
@@ -262,28 +291,126 @@ void StateEditSet::HandleInput(char c)
 			// No
 				[]() {; }
 			));
+
+		return true;
 	}
+
+	if (StatePlayer::HandleInput(c))
+		return true;
+
+	return false;
 }
 
 // StateAddTracker
 
-StateEditTracker::StateEditTracker(TrackingWindow* window, TrackingTarget* target)
-	:StateBase(window), target(target)
+StateEditTracker::StateEditTracker(TrackingWindow* window, TrackingSet* set, TrackingTarget* target)
+	:StateBase(window), set(set), target(target)
 {
 
 }
 
-void StateEditTracker::UpdateButtons()
+void StateEditTracker::UpdateButtons(vector<GuiButton>& out)
 {
-	StateBase::UpdateButtons();
 	auto me = this;
 
-	AddButton("Set rect", 'r');
-}
+	AddButton(out, "Done (q)", [me]() {
+		me->Pop();
+	});
 
-void StateEditTracker::EnterState()
-{
-	UpdateButtons();
+	AddButton(out, "Set rect", 'r');
+	auto t = GetTracker(target->preferredTracker);
+
+	auto& trackerBtn = AddButton(out, "Tracker: " + t.name, [me]() {
+		if (me->trackerOpen)
+		{
+			me->trackerOpen = false;
+			me->window->DrawWindow(true);
+			return;
+		}
+
+		if (me->typeOpen)
+			me->typeOpen = false;
+
+		me->trackerOpen = true;
+		me->window->DrawWindow(true);
+	});
+
+	if (trackerOpen)
+	{
+		constexpr auto types = magic_enum::enum_entries<TrackerJTType>();
+
+		int x = trackerBtn.rect.x + trackerBtn.rect.width + 20;
+
+		for (auto& t : types)
+		{
+			auto s = GetTracker(t.first);
+			if (s.type == TrackerJTType::TRACKER_TYPE_UNKNOWN)
+				continue;
+
+			Rect r = trackerBtn.rect;
+			r.width = 180;
+			r.x = x;
+			x += r.width + 20;
+
+			GuiButton newBtn;
+			newBtn.rect = r;
+			newBtn.text = s.name;
+			newBtn.textScale = 0.5;
+			newBtn.onClick = [me, t]() {
+				me->target->preferredTracker = t.first;
+				me->trackerOpen = false;
+				me->window->DrawWindow(true);
+			};
+
+			out.push_back(newBtn);
+		}
+	}
+
+	auto& typeBtn = AddButton(out, "Type: " + TargetTypeToString(target->targetType), [me]() {
+		if (me->typeOpen)
+		{
+			me->typeOpen = false;
+			me->window->DrawWindow(true);
+			return;
+		}
+
+		if (me->trackerOpen)
+			me->trackerOpen = false;
+
+		me->typeOpen = true;
+		me->window->DrawWindow(true);
+	});
+
+	if (typeOpen)
+	{
+		constexpr auto types = magic_enum::enum_entries<TARGET_TYPE>();
+
+		int x = typeBtn.rect.x + typeBtn.rect.width + 20;
+
+		for (auto& t : types)
+		{
+			if (t.first == TARGET_TYPE::TYPE_UNKNOWN)
+				continue;
+
+			Rect r = typeBtn.rect;
+			r.x = x;
+			x += r.width + 20;
+
+			GuiButton newBtn;
+			newBtn.rect = r;
+			newBtn.text = TargetTypeToString(t.first);
+			newBtn.textScale = 0.5;
+			newBtn.onClick = [me, t]() {
+				me->target->targetType = t.first;
+				me->typeOpen = false;
+				me->window->DrawWindow(true);
+			};
+
+			out.push_back(newBtn);
+		}
+	}
+
+	AddButton(out, "Test tracking", 'f');
 }
 
 void StateEditTracker::RemovePoints(Rect r)
@@ -346,7 +473,7 @@ void StateEditTracker::AddPoints(Rect r)
 	
 }
 
-void StateEditTracker::HandleInput(char c)
+bool StateEditTracker::HandleInput(char c)
 {
 	auto window = this->window;
 	auto me = this;
@@ -354,7 +481,7 @@ void StateEditTracker::HandleInput(char c)
 	if (c == 'r')
 	{
 		window->stack.PushState(new StateSelectRoi(window, "Select the feature (cancel to remove)",
-			[me](Rect2f& rect)
+			[me](Rect& rect)
 			{
 				me->target->initialRect = rect;
 				me->target->UpdateType();
@@ -367,10 +494,20 @@ void StateEditTracker::HandleInput(char c)
 				me->target->UpdateType();
 			}
 		));
+
+		return true;
 	}
+	else if (c == 'f')
+	{
+		window->stack.PushState(new StateTestTrackers(window, me->set, me->target));
+
+		return true;
+	}
+
+	return false;
 }
 
-void StateEditTracker::HandleMouse(int e, int x, int y, int f)
+bool StateEditTracker::HandleMouse(int e, int x, int y, int f)
 {
 	if (e == EVENT_LBUTTONUP)
 	{
@@ -395,6 +532,7 @@ void StateEditTracker::HandleMouse(int e, int x, int y, int f)
 		draggingBtn = BUTTON_NONE;
 
 		window->DrawWindow();
+		return true;
 	}
 
 	if (e == EVENT_RBUTTONUP)
@@ -410,6 +548,7 @@ void StateEditTracker::HandleMouse(int e, int x, int y, int f)
 		draggingBtn = BUTTON_NONE;
 
 		window->DrawWindow();
+		return true;
 	}
 
 	if (e == EVENT_LBUTTONDOWN)
@@ -417,6 +556,7 @@ void StateEditTracker::HandleMouse(int e, int x, int y, int f)
 		clickStartPosition = Point2f(x, y);
 		dragging = true;
 		draggingBtn = BUTTON_LEFT;
+		return true;
 	}
 
 	if (e == EVENT_RBUTTONDOWN)
@@ -424,6 +564,7 @@ void StateEditTracker::HandleMouse(int e, int x, int y, int f)
 		clickStartPosition = Point2f(x, y);
 		dragging = true;
 		draggingBtn = BUTTON_RIGHT;
+		return true;
 	}
 
 	if(e == EVENT_MOUSEMOVE)
@@ -441,6 +582,8 @@ void StateEditTracker::HandleMouse(int e, int x, int y, int f)
 			window->DrawWindow();
 		}
 	}
+
+	return false;
 }
 
 void StateEditTracker::AddGui(Mat& frame)
@@ -463,131 +606,57 @@ void StateEditTracker::AddGui(Mat& frame)
 
 // StateTracking
 
-StateTracking::StateTracking(TrackingWindow* window, TrackingSet* set, bool test)
-	:StatePlaying(window), set(set), test(test)
+StateTracking::StateTracking(TrackingWindow* window, TrackingSet* set)
+	:StatePlayer(window), set(set)
 {
-	AddButton("Stop here", 'd');
+	
 }
 
 void StateTracking::EnterState()
 {
+	StatePlayer::EnterState();
+
 	window->timebar.SelectTrackingSet(set);
+	set->events.clear();
+	calculator.Reset();
 
 	cuda::GpuMat* gpuFrame = window->GetInFrame();
 	FRAME_CACHE->Update(gpuFrame, FrameVariant::GPU_RGBA);
 
-	trackerBindings.reserve(set->targets.size() * 5);
+	if (trackerBindings.size() > 0)
+		trackerBindings.clear();
+
+	trackerBindings.reserve(set->targets.size());
 
 	for (auto& t : set->targets)
 	{
-		t.results.clear();
-		TrackerJT* tracker;
-		TrackingTarget::TrackingState* state;
 
-		if (!test)
-		{
+		TrackerJTType type = t.preferredTracker;
+
+		if (type == TrackerJTType::TRACKER_TYPE_UNKNOWN)
 			if (t.SupportsTrackingType(TRACKING_TYPE::TYPE_POINTS))
-			{
-				// GpuTrackerPoints
-				state = t.InitTracking();
-				tracker = new GpuTrackerPoints(t, *state);
+				type = TrackerJTType::GPU_POINTS_PYLSPRASE;
+			else if(t.SupportsTrackingType(TRACKING_TYPE::TYPE_RECT))
+				type = TrackerJTType::CPU_RECT_MEDIAN_FLOW;
 
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-			}
-			else if (t.SupportsTrackingType(TRACKING_TYPE::TYPE_RECT))
-			{
-				state = t.InitTracking();
-				tracker = new TrackerOpenCV(t, *state, legacy::upgradeTrackingAPI(legacy::TrackerMedianFlow::create()), "TrackerMedianFlow");
+		TrackerJTStruct jts = GetTracker(type);
+		if (!t.SupportsTrackingType(jts.trackingType))
+			continue;
 
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-			}
-		}
-		else
-		{
+		trackerBindings.emplace_back(&t, jts);
+		trackerBindings.back().tracker->init();
+		trackerBindings.back().state->UpdateColor(trackerBindings.size());
+	}
 
-			if (t.SupportsTrackingType(TRACKING_TYPE::TYPE_POINTS))
-			{
-				// GpuTrackerPoints
-				state = t.InitTracking();
-				tracker = new GpuTrackerPoints(t, *state);
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-			}
-
-			if (t.SupportsTrackingType(TRACKING_TYPE::TYPE_RECT))
-			{
-				// TrackerCSRT
-				state = t.InitTracking();
-				tracker = new TrackerOpenCV(t, *state, TrackerCSRT::create(), "TrackerCSRT");
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-
-
-				// TrackerMIL
-				state = t.InitTracking();
-				tracker = new TrackerOpenCV(t, *state, TrackerMIL::create(), "TrackerMIL");
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-
-				// TrackerMedianFlow
-				state = t.InitTracking();
-				tracker = new TrackerOpenCV(t, *state, legacy::upgradeTrackingAPI(legacy::TrackerMedianFlow::create()), "TrackerMedianFlow");
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-
-				// GpuTrackerGOTURN
-				/*
-				state = t.InitTracking();
-				tracker = new GpuTrackerGOTURN(t, *state);
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-				*/
-
-				// TrackerDaSiamRPN
-				TrackerDaSiamRPN::Params p;
-				p.backend = dnn::DNN_BACKEND_CUDA;
-				p.target = dnn::DNN_TARGET_CUDA;
-
-				state = t.InitTracking();
-				tracker = new TrackerOpenCV(t, *state, TrackerDaSiamRPN::create(p), "TrackerDaSiamRPN");
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-
-
-				// TrackerKCF
-				state = t.InitTracking();
-				tracker = new TrackerOpenCV(t, *state, TrackerKCF::create(), "TrackerKCF");
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-
-				/*
-				TrackerKCF::Params p;
-
-				state = t.InitTracking();
-				//tracker = new TrackerOpenCV(t, *state, new mycv::GpuTrackerKCFImpl(p), "TackerKCFImplParallel");
-				tracker = new mycv::GpuTrackerKCFImpl(p, t, *state);
-
-				trackerBindings.emplace_back(&t, state, tracker);
-				trackerBindings.back().tracker->init();
-				*/
-
-			}
-		}
-		
+	if (trackerBindings.size() == 0)
+	{
+		Pop();
+		return;
 	}
 
 	FRAME_CACHE->Clear();
-
-	window->SetPlaying(true);
+	playing = true;
+	window->SetPlaying(playing);
 }
 
 void StateTracking::LeaveState()
@@ -596,19 +665,73 @@ void StateTracking::LeaveState()
 	FRAME_CACHE->Clear();
 }
 
-void StateTracking::HandleInput(char c)
+void StateTracking::UpdateButtons(vector<GuiButton>& out)
 {
-	if (c == ' ')
+	StatePlayer::UpdateButtons(out);
+
+	if (!playing)
 	{
-		playing = !playing;
-		window->SetPlaying(playing);
-		window->DrawWindow();
+		AddButton(out, "Remove points", 'r');
+	}
+}
+
+bool StateTracking::HandleInput(char c)
+{
+	if (StatePlayer::HandleInput(c))
+		return true;
+
+	auto me = this;
+
+	if (!playing && c == 'r')
+	{
+		window->stack.PushState(new StateSelectRoi(window, "Select which points to remove",
+			[me](Rect& r) {
+				if (!me->RemovePoints(r))
+					return;
+
+
+			},
+			// Failed
+			[]() {; },
+			[me](Mat& frame) {
+				for (auto& b : me->trackerBindings)
+				{
+					b.state->Draw(frame);
+				}
+			}
+		));
+
+		return true;
 	}
 
-	if (c == 'd')
+	return false;
+}
+
+bool StateTracking::RemovePoints(Rect r)
+{
+	bool ret = false;
+
+	for (auto& tb : trackerBindings)
 	{
-		window->stack.ReplaceState(new StateTrackResult(window, set, "Done"));
+		if (tb.trackerStruct.type != TRACKING_TYPE::TYPE_POINTS)
+			continue;
+
+		for (int i = tb.state->points.size(); i>0 ; i--)
+		{
+			auto& p = tb.state->points.at(i - 1);
+
+			bool inside =
+				p.point.x > r.x && p.point.x < r.x + r.width &&
+				p.point.y > r.y && p.point.y < r.y + r.height;
+			if (!inside)
+				continue;
+
+			tb.target->intialPoints.erase(tb.target->intialPoints.begin() + i - 1);
+			ret = true;
+		}
 	}
+
+	return ret;
 }
 
 void StateTracking::AddGui(Mat& frame)
@@ -629,7 +752,7 @@ void StateTracking::AddGui(Mat& frame)
 		y += 20;
 	}
 
-	set->calculator.Draw(frame, window->GetCurrentPosition());
+	calculator.Draw(*set, frame, window->GetCurrentPosition());
 }
 
 void StateTracking::Update()
@@ -637,60 +760,105 @@ void StateTracking::Update()
 	if (!playing)
 		return;
 
-	// Calc FPS
-	auto now = high_resolution_clock::now();
-	int diffMs = duration_cast<chrono::milliseconds>(now - timer).count();
-	timerFrames++;
-	
-	if (diffMs >= 200) {
-
-		float perFrame = (diffMs / timerFrames);
-		if (perFrame > 0) {
-			drawFps = 1000 / perFrame;
-		}
-
-		timerFrames = 0;
-		timer = now;
-	}
+	UpdateFPS();
 
 	cuda::Stream stream;
 
-	// Read and color the new frame
 	window->ReadCleanFrame(stream);
 
 	cuda::GpuMat* gpuFrame = window->GetInFrame();
 	FRAME_CACHE->Update(gpuFrame, FrameVariant::GPU_RGBA);
-	FRAME_CACHE->GetVariant(FrameVariant::LOCAL_RGB, stream);
-	FRAME_CACHE->GetVariant(FrameVariant::GPU_RGB, stream);
 
 	// Run all trackers on the new frame
 	for (auto& b : trackerBindings)
 	{
-		now = high_resolution_clock::now();
+		auto now = high_resolution_clock::now();
 		b.tracker->update(stream);
 		b.lastUpdateMs = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count();
 	}
+
 	stream.waitForCompletion();
 
 	time_t time = window->GetCurrentPosition();
 	for (auto& b : trackerBindings)
 	{
-		b.state->SnapResult(time);
+		b.state->SnapResult(*set, time);
 	}
-	set->calculator.Update(*set, time);
 
+	set->timeEnd = time;
+	calculator.Update(*set, time);
+
+	SyncFps();
 	window->DrawWindow();
 }
 
-// StateTrackResult
+// StateTestTrackers
 
-void StateTrackResult::EnterState()
+StateTestTrackers::StateTestTrackers(TrackingWindow* window, TrackingSet* set, TrackingTarget* target)
+	:StateTracking(window, set), target(target)
 {
 	
 }
 
-void StateTrackResult::AddGui(Mat& frame)
+void StateTestTrackers::UpdateButtons(vector<GuiButton>& out)
 {
-	putText(frame, "Tracking result: " + result, Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-	putText(frame, "Press q to return to edit", Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+	StateTracking::UpdateButtons(out);
+
+	if (!playing)
+	{
+		auto me = this;
+
+		for (auto& b : trackerBindings)
+		{	
+			trackerBinding* bPtr = &b;
+
+			GuiButton& btn = AddButton(out, "Pick " + b.trackerStruct.name, [me, bPtr]() {
+				me->target->preferredTracker = bPtr->trackerStruct.type;
+				me->Pop();
+			});
+			btn.textColor = b.state->color;
+		}
+
+	}
+}
+
+void StateTestTrackers::EnterState()
+{
+	window->timebar.SelectTrackingSet(set);
+
+	cuda::GpuMat* gpuFrame = window->GetInFrame();
+	FRAME_CACHE->Update(gpuFrame, FrameVariant::GPU_RGBA);
+
+	constexpr auto types = magic_enum::enum_entries<TrackerJTType>();
+	auto me = this;
+
+	if (trackerBindings.size() > 0)
+	{
+		trackerBindings.clear();
+	}
+
+	trackerBindings.reserve(types.size());
+
+	for (auto& t : types)
+	{
+		auto s = GetTracker(t.first);
+		if (s.type == TrackerJTType::TRACKER_TYPE_UNKNOWN)
+			continue;
+		
+		if (target->SupportsTrackingType(s.trackingType))
+		{
+			trackerBindings.emplace_back(target, s);
+			trackerBindings.back().tracker->init();
+			trackerBindings.back().state->UpdateColor(trackerBindings.size());
+		}
+	}
+
+	if (trackerBindings.size() == 0)
+	{
+		Pop();
+		return;
+	}
+
+	FRAME_CACHE->Clear();
+	window->SetPlaying(true);
 }

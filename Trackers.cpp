@@ -20,7 +20,7 @@ void FrameCache::Clear()
     cache.clear();
 
     current = nullptr;
-    currentType = FrameVariant::UNKNOWN;
+    currentType = FrameVariant::VARIANT_UNKNOWN;
 }
 
 void* FrameCache::GetVariant(FrameVariant v, cuda::Stream& stream)
@@ -69,8 +69,93 @@ void* FrameCache::GetVariant(FrameVariant v, cuda::Stream& stream)
     return nullptr;
 }
 
+TrackerJTStruct GetTracker(TrackerJTType type)
+{
+    switch (type) {
+    case GPU_POINTS_PYLSPRASE:
+        return {
+            type,
+            TRACKING_TYPE::TYPE_POINTS,
+            "GpuTrackerPoints",
+            [](auto& t, auto& s) {
+                return new GpuTrackerPoints(t, s);
+            }
+        };
+    case GPU_RECT_GOTURN:
+        return {
+            type,
+            TRACKING_TYPE::TYPE_RECT,
+            "GpuTrackerGOTURN",
+            [](auto& t, auto& s) {
+                return new GpuTrackerGOTURN(t, s);
+            }
+        };
+    case GPU_RECT_DIASIAM:
+        return {
+            type,
+            TRACKING_TYPE::TYPE_RECT,
+            "TrackerDaSiamRPN",
+            [](auto& t, auto& s) {
+                TrackerDaSiamRPN::Params p;
+                p.backend = dnn::DNN_BACKEND_CUDA;
+                p.target = dnn::DNN_TARGET_CUDA;
+
+                return new TrackerOpenCV(t, s, TrackerDaSiamRPN::create(p), "TrackerDaSiamRPN");
+            }
+        };
+    case CPU_RECT_MEDIAN_FLOW:
+        return {
+            type,
+            TRACKING_TYPE::TYPE_RECT,
+            "TrackerMedianFlow",
+            [](auto& t, auto& s) {
+                return new TrackerOpenCV(t, s, legacy::upgradeTrackingAPI(legacy::TrackerMedianFlow::create()), "TrackerMedianFlow");
+            }
+        };
+    case CPU_RECT_CSRT:
+        return {
+            type,
+            TRACKING_TYPE::TYPE_RECT,
+            "TrackerCSRT",
+            [](auto& t, auto& s) {
+                return new TrackerOpenCV(t, s, TrackerCSRT::create(), "TrackerCSRT");
+            }
+        };
+        
+    case CPU_RECT_MIL:
+        return {
+            type,
+            TRACKING_TYPE::TYPE_RECT,
+            "TrackerMIL",
+            [](auto& t, auto& s) {
+                return new TrackerOpenCV(t, s, TrackerMIL::create(), "TrackerMIL");
+            }
+        };
+        
+    case CPU_RECT_KCF:
+        return {
+            type,
+            TRACKING_TYPE::TYPE_RECT,
+            "TrackerKCF",
+            [](auto& t, auto& s) {
+                return new TrackerOpenCV(t, s, TrackerKCF::create(), "TrackerKCF");
+            }
+        };
+
+    default:
+        return {
+            TrackerJTType::TRACKER_TYPE_UNKNOWN,
+            TRACKING_TYPE::TYPE_NONE,
+            "Unknown",
+            [](auto& t, auto& s) {
+                return nullptr;
+            }
+        };
+    }
+}
+
 // TrackerJT
-TrackerJT::TrackerJT(TrackingTarget& target, TrackingTarget::TrackingState& state, TRACKING_TYPE type, const char* name, FrameVariant frameType)
+TrackerJT::TrackerJT(TrackingTarget& target, TrackingState& state, TRACKING_TYPE type, const char* name, FrameVariant frameType)
     :state(state), type(type), name(name), frameType(frameType)
 {
     assert(target.SupportsTrackingType(type));
@@ -89,15 +174,18 @@ bool TrackerJT::update(cuda::Stream& stream)
 
     void* image = FRAME_CACHE->GetVariant(frameType, stream);
     updateInternal(image, stream);
+
     if (type == TRACKING_TYPE::TYPE_RECT) {
         state.center.x = state.rect.x + (state.rect.width / 2);
         state.center.y = state.rect.y + (state.rect.height / 2);
+
+        state.size = state.rect.width + state.rect.height / 2;
     }
 }
 
 // GpuTrackerGOTURN
 
-GpuTrackerGOTURN::GpuTrackerGOTURN(TrackingTarget& target, TrackingTarget::TrackingState& state)
+GpuTrackerGOTURN::GpuTrackerGOTURN(TrackingTarget& target, TrackingState& state)
     :TrackerJT(target, state, TRACKING_TYPE::TYPE_RECT, __func__, FrameVariant::GPU_RGB)
 {
     type = TRACKING_TYPE::TYPE_RECT;
@@ -198,7 +286,7 @@ bool GpuTrackerGOTURN::updateInternal(void* image, cuda::Stream& stream)
 
 // GpuTrackerPoints
 
-GpuTrackerPoints::GpuTrackerPoints(TrackingTarget& target, TrackingTarget::TrackingState& state)
+GpuTrackerPoints::GpuTrackerPoints(TrackingTarget& target, TrackingState& state)
     :TrackerJT(target, state, TRACKING_TYPE::TYPE_POINTS, __func__, FrameVariant::GPU_GREY)
 {
     opticalFlowTracker = cuda::SparsePyrLKOpticalFlow::create(
@@ -216,12 +304,12 @@ void GpuTrackerPoints::initInternal(void* image)
 
     for (int p = 0; p < state.points.size(); p++)
     {
-        PointState ps;
+        GpuPointState ps;
         ps.cudaIndex = p;
         ps.cudaIndexNew = -1;
 
         points.push_back(state.points.at(p).point);
-        pointStates.insert(pair<TrackingTarget::PointState*, PointState>(&state.points[p], ps));
+        pointStates.insert(pair<PointState*, GpuPointState>(&state.points[p], ps));
     }
 
     points_.upload(points);
@@ -258,7 +346,7 @@ bool GpuTrackerPoints::updateInternal(void* image, cuda::Stream& stream)
             auto it = find_if(
                 pointStates.begin(),
                 pointStates.end(),
-                [p](pair<TrackingTarget::PointState*, PointState> ps) { return ps.second.cudaIndex == p; }
+                [p](pair<PointState*, GpuPointState> ps) { return ps.second.cudaIndex == p; }
             );
 
             assert(it != pointStates.end());
@@ -292,17 +380,30 @@ bool GpuTrackerPoints::updateInternal(void* image, cuda::Stream& stream)
         }
     }
 
-    cuda::reduce(points, reduced, 1, REDUCE_AVG, -1, stream);
+    if (state.targetType == TARGET_TYPE::TYPE_BACKGROUND)
+    {
+        Point2f center;
+        float radius;
+        minEnclosingCircle(pointsDL, center, radius);
 
-    vector<Point2f> center;
-    reduced.download(center, stream);
-    state.center = center.at(0);
+        state.center = center;
+        state.size = radius;
+    }
+    else
+    {
+        cuda::reduce(points, reduced, 1, REDUCE_AVG, -1, stream);
+
+        vector<Point2f> center;
+        reduced.download(center, stream);
+        state.center = center.at(0);
+    }
 
     for (auto& kv : pointStates)
     {
         if(kv.first->active)
             kv.first->point = pointsDL.at(kv.second.cudaIndex);
     }
+
 
     image_ = ((cuda::GpuMat*)image)->clone();
     points_ = points.clone();
@@ -312,7 +413,7 @@ bool GpuTrackerPoints::updateInternal(void* image, cuda::Stream& stream)
 
 // TrackerOpenCV
 
-TrackerOpenCV::TrackerOpenCV(TrackingTarget& target, TrackingTarget::TrackingState& state, Ptr<Tracker> tracker, const char* trackerName)
+TrackerOpenCV::TrackerOpenCV(TrackingTarget& target, TrackingState& state, Ptr<Tracker> tracker, const char* trackerName)
     :TrackerJT(target, state, TRACKING_TYPE::TYPE_RECT, __func__, FrameVariant::LOCAL_RGB)
     , tracker(tracker)
     , trackerName(trackerName)

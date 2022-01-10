@@ -27,100 +27,97 @@ public:
 	StateBase(TrackingWindow* window)
 		:window(window)
 	{
-		UpdateButtons();
+		
 	}
 
 	virtual void EnterState() {};
 	virtual void LeaveState() {};
 
-	virtual void UpdateButtons() 
+	virtual void UpdateButtons(vector<GuiButton>& out) 
 	{
 		auto me = this;
-		buttons.clear();
 
-		AddButton("Cancel (q)", [me]() {
+		AddButton(out, "Cancel (q)", [me]() {
 			me->Pop();
 		});
 	};
 	virtual void AddGui(Mat& frame) { ; }
 	virtual void Update() {};
-	virtual void HandleInput(char c) {};
-	virtual void HandleMouse(int e, int x, int y, int f) {};
+	virtual bool HandleInput(char c) { return false; };
+	virtual bool HandleMouse(int e, int x, int y, int f) { return false; };
 	virtual string GetName() const = 0;
 
-	bool ShouldPop() { return popMe; };
+	virtual bool ShouldPop() { return popMe; };
 	void Pop() { popMe = true; };
-	GuiButton& AddButton(string text, function<void()> onClick, Rect r)
+	GuiButton& AddButton(vector<GuiButton>& out, string text, function<void()> onClick, Rect r)
 	{
 		GuiButton b;
 		b.text = text;
 		b.onClick = onClick;
 		b.rect = r;
 
-		buttons.push_back(b);
-		return buttons.back();
+		out.push_back(b);
+
+		return out.back();
 	}
-	GuiButton& AddButton(string text, function<void()> onClick)
+	GuiButton& AddButton(vector<GuiButton>& out, string text, function<void()> onClick)
 	{
-		return AddButton(text, onClick, Rect(
-			40,
-			220 + (buttons.size() * (40 + 20)),
+		int x = 40;
+		int y = 220;
+
+		for (auto& b : out)
+			if (b.rect.x == x)
+				y += (40 + 20);
+
+		return AddButton(out, text, onClick, Rect(
+			x,
+			y,
 			230,
 			40
 		));
 	}
 
-	GuiButton& AddButton(string text, char c)
+	GuiButton& AddButton(vector<GuiButton>& out, string text, char c)
 	{
 		auto me = this;
 
-		return AddButton(text + " (" + c + ")", [me, c]() {
+		return AddButton(out, text + " (" + c + ")", [me, c]() {
 			me->HandleInput(c);
 		});
 	}
-
-	vector<GuiButton> buttons;
 
 protected:
 	TrackingWindow* window;
 	bool popMe = false;
 };
 
-
-
-class StatePaused : public StateBase
-{
-public:
-	StatePaused(TrackingWindow* window);
-
-	void HandleInput(char c);
-	void AddGui(Mat& frame);
-	void HandleMouse(int e, int x, int y, int f);
-
-	string GetName() const { return "Paused"; }
-};
-
-class StatePlaying : public StateBase
+class StatePlayer : public StateBase
 {
 public:
 	using StateBase::StateBase;
 
 	virtual void Update();
-
 	void EnterState();
+	void UpdateButtons(vector<GuiButton>& out);
 
-	virtual void HandleInput(char c);
+	void UpdateFPS();
+	virtual bool HandleInput(char c);
 	virtual void AddGui(Mat& frame);
+	void SyncFps();
 
 	virtual string GetName() const { return "Playing"; }
 
 protected:
+	bool playing = false;
 	steady_clock::time_point timer;
 	unsigned int timerFrames;
 	int drawFps;
+	time_point<steady_clock> lastUpdate;
+	TrackingSet* lastSet = nullptr;
+	TrackingCalculator calculator;
 };
 
-class StateEditSet : public StateBase
+class StateEditSet : public StatePlayer
 {
 public:
 	StateEditSet(TrackingWindow* window, TrackingSet* set);
@@ -128,10 +125,9 @@ public:
 	void EnterState();
 	void LeaveState();
 
-	void HandleInput(char c);
-	void HandleMouse(int e, int x, int y, int f);
+	bool HandleInput(char c);
 	void AddGui(Mat& frame);
-	virtual void UpdateButtons() override;
+	virtual void UpdateButtons(vector<GuiButton>& out) override;
 	string GetName() const { return "EditSet"; }
 
 protected:
@@ -149,17 +145,15 @@ typedef function<void(TrackingTarget t)> AddTrackerCallback;
 class StateEditTracker : public StateBase
 {
 public:
-	StateEditTracker(TrackingWindow* window, TrackingTarget* target);
-
-	void EnterState();
+	StateEditTracker(TrackingWindow* window, TrackingSet* set, TrackingTarget* target);
 
 	void AddPoints(Rect r);
 	void RemovePoints(Rect r);
 	
-	void HandleInput(char c);
-	void HandleMouse(int e, int x, int y, int f);
+	bool HandleInput(char c);
+	bool HandleMouse(int e, int x, int y, int f);
 
-	virtual void UpdateButtons() override;
+	virtual void UpdateButtons(vector<GuiButton>& out) override;
 	void AddGui(Mat& frame);
 	string GetName() const { return "EditTracker"; }
 
@@ -167,22 +161,27 @@ protected:
 	Point2f clickStartPosition;
 	Point2f draggingPosition;
 
+	bool typeOpen = false;
+	bool trackerOpen = false;
+
 	bool dragging = false;
 	bool draggingRect = false;
 	DRAGGING_BUTTON draggingBtn = BUTTON_NONE;
 
+	TrackingSet* set;
 	TrackingTarget* target;
 };
 
-class StateTracking : public StatePlaying
+class StateTracking : public StatePlayer
 {
 public:
 	struct trackerBinding
 	{
-		trackerBinding(TrackingTarget* target, TrackingTarget::TrackingState* state, TrackerJT* tracker)
-			:target(target), state(state), tracker(tracker)
+		trackerBinding(TrackingTarget* target, TrackerJTStruct& trackerStruct)
+			:target(target), trackerStruct(trackerStruct)
 		{
-
+			state = target->InitTracking(trackerStruct.trackingType);
+			tracker = trackerStruct.Create(*target, *state);
 		};
 
 		~trackerBinding()
@@ -191,44 +190,39 @@ public:
 			delete state;
 		}
 
+		TrackerJTStruct trackerStruct;
 		TrackingTarget* target;
 		TrackerJT* tracker;
-		TrackingTarget::TrackingState* state;
+		TrackingState* state;
 		int lastUpdateMs = 0;
 	};
 
-	StateTracking(TrackingWindow* window, TrackingSet* set, bool test);
+	StateTracking(TrackingWindow* window, TrackingSet* set);
 
-	void HandleInput(char c);
 	void EnterState();
 	void LeaveState();
+	void UpdateButtons(vector<GuiButton>& out);
+	bool HandleInput(char c);
+	bool RemovePoints(Rect r);
 	void Update();
 
 	void AddGui(Mat& frame);
 	string GetName() const { return "Tracking"; }
 
 protected:
-	bool test = false;
 	TrackingSet* set;
 	vector<trackerBinding> trackerBindings;
-
-	bool playing = true;
 };
 
-class StateTrackResult : public StateBase
+class StateTestTrackers : public StateTracking
 {
 public:
-	StateTrackResult(TrackingWindow* window, TrackingSet* set, string result)
-		:StateBase(window), set(set), result(result)
-	{
-
-	}
-
+	StateTestTrackers(TrackingWindow* window, TrackingSet* set, TrackingTarget* target);
+	string GetName() const { return "TestTrackers"; }
+	
+	void UpdateButtons(vector<GuiButton>& out);
 	void EnterState();
-	void AddGui(Mat& frame);
 
-	string GetName() const { return "TrackResult"; }
 protected:
-	TrackingSet* set;
-	string result;
+	TrackingTarget* target;
 };

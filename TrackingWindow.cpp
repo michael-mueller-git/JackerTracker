@@ -5,30 +5,29 @@
 
 // Timebar
 
-Timebar::Timebar(TrackingWindow& window)
-	:window(window)
+Timebar::Timebar(TrackingWindow* window)
+	:StateBase(window)
 {
 
 }
 
-map<TrackingSet*, GuiButton> Timebar::GetButtons()
+void Timebar::UpdateButtons(vector<GuiButton>& out)
 {
-	map<TrackingSet*, GuiButton> ret;
+	auto me = this;
 
 	Rect barRect(
 		20,
 		20,
-		window.GetOutFrame()->cols - 40,
+		window->GetOutFrame()->cols - 40,
 		20
 	);
 
-	
-	for (auto& s : window.project.sets)
+	for (auto& s : window->project.sets)
 	{
 		int x = mapValue<track_time, int>(
 			s.timeStart,
 			0,
-			window.GetDuration(),
+			window->GetDuration(),
 			barRect.x,
 			barRect.x + barRect.width
 		);
@@ -40,17 +39,34 @@ map<TrackingSet*, GuiButton> Timebar::GetButtons()
 			barRect.height + 4
 		);
 
+		TrackingSet* setptr = &s;
+
 		GuiButton b;
 		b.text = to_string(s.targets.size());
 		b.textScale = 0.4;
 		b.rect = setRect;
+		b.customHover = true;
+		b.onClick = [me, setptr]() {
+			auto s = me->window->stack.GetState();
+			if (!s)
+				return false;
+
+			if (s->GetName() == "Paused")
+			{
+				me->window->stack.PushState(new StateEditSet(me->window, setptr));
+			}
+			else if (s->GetName() == "EditSet")
+			{
+				me->window->stack.ReplaceState(new StateEditSet(me->window, setptr));
+			}
+			
+		};
+
 		if (selectedSet == &s)
 			b.hover = true;
 
-		ret.insert(pair<TrackingSet*, GuiButton>(&s, b));
+		out.push_back(b);
 	}
-
-	return ret;
 }
 
 void Timebar::AddGui(Mat& frame)
@@ -68,9 +84,9 @@ void Timebar::AddGui(Mat& frame)
 	rectangle(frame, barRect, Scalar(160, 160, 160), 1);
 
 	int x = mapValue<track_time, int>(
-		window.GetCurrentPosition(),
+		window->GetCurrentPosition(),
 		0,
-		window.GetDuration(),
+		window->GetDuration(),
 		barRect.x,
 		barRect.x + barRect.width
 	);
@@ -88,10 +104,29 @@ void Timebar::AddGui(Mat& frame)
 		Scalar(0, 0, 0), 2
 	);
 
-	buttons = GetButtons();
-	for (auto& sr : buttons)
+	for (auto& s : window->project.sets)
 	{
-		sr.second.Draw(frame);
+		if (s.targets.size() == 0 || s.timeStart == s.timeEnd)
+			continue;
+
+		int x1 = mapValue<track_time, int>(
+			s.timeStart,
+			0,
+			window->GetDuration(),
+			barRect.x,
+			barRect.x + barRect.width
+		);
+
+		int x2 = mapValue<track_time, int>(
+			s.timeEnd,
+			0,
+			window->GetDuration(),
+			barRect.x,
+			barRect.x + barRect.width
+		);
+
+		line(frame, Point(x1, 30), Point(x2, 30), Scalar(0, 0, 255), 2);
+
 	}
 }
 
@@ -100,36 +135,18 @@ void Timebar::SelectTrackingSet(TrackingSet* s)
 	selectedSet = s;
 	if (s)
 	{
-		if (s->timeStart != window.GetCurrentPosition())
-			window.SetPosition(s->timeStart);
+		if (s->timeStart != window->GetCurrentPosition())
+			window->SetPosition(s->timeStart);
 	}
 };
 
-bool Timebar::HandleMouse(int e, int x, int y, int f)
-{
-	if (e != EVENT_LBUTTONUP)
-		return false;
-
-	for (auto& sr : buttons)
-	{
-		if (sr.second.IsSelected(x, y))
-		{
-			SelectTrackingSet(sr.first);
-			window.DrawWindow();
-			return true;
-		}
-	}
-
-	return false;
-}
-
 TrackingSet* Timebar::GetNextSet()
 {
-	if (window.project.sets.size() == 0)
+	if (window->project.sets.size() == 0)
 		return nullptr;
 
 	auto s = GetSelectedSet();
-	auto& sets = window.project.sets;
+	auto& sets = window->project.sets;
 
 	if (s)
 	{
@@ -143,7 +160,7 @@ TrackingSet* Timebar::GetNextSet()
 	}
 	else
 	{
-		auto t = window.GetCurrentPosition();
+		auto t = window->GetCurrentPosition();
 		auto it = find_if(sets.begin(), sets.end(), [t](TrackingSet& set) { return set.timeStart > t; });
 		if (it == sets.end())
 			return nullptr;
@@ -154,12 +171,12 @@ TrackingSet* Timebar::GetNextSet()
 
 TrackingSet* Timebar::GetPreviousSet()
 {
-	if (window.project.sets.size() == 0)
+	if (window->project.sets.size() == 0)
 		return nullptr;
 
 
 	auto s = GetSelectedSet();
-	auto& sets = window.project.sets;
+	auto& sets = window->project.sets;
 
 	if (s)
 	{
@@ -174,7 +191,7 @@ TrackingSet* Timebar::GetPreviousSet()
 	else
 	{
 
-		auto t = window.GetCurrentPosition();
+		auto t = window->GetCurrentPosition();
 
 		auto it = find_if(sets.rbegin(), sets.rend(), [t](TrackingSet& set) { return set.timeStart < t; });
 		if (it == sets.rend())
@@ -186,11 +203,35 @@ TrackingSet* Timebar::GetPreviousSet()
 
 // StateStack
 
+StateBase* StateStack::GetState() {
+	if (stack.size() == 0)
+		return nullptr;
+
+	if (!multiState)
+	{
+		multiState = new MultiState(&window, stack.back());
+		multiState->AddState(new StateGlobal(&window), true);
+		multiState->AddState(&window.timebar, false);
+	}
+
+	dirty = false;
+
+	return multiState;
+};
+
 void StateStack::PushState(StateBase* s)
 {
+	if (multiState)
+	{
+		delete multiState;
+		multiState = nullptr;
+	}
+
+	dirty = true;
+
 	stack.push_back(s);
 	s->EnterState();
-	window.DrawWindow();
+	window.DrawWindow(true);
 }
 
 void StateStack::ReplaceState(StateBase* s)
@@ -208,20 +249,39 @@ void StateStack::PopState()
 	auto s = stack.back();
 	stack.pop_back();
 	s->LeaveState();
-	delete(s);
+	delete s;
+	
+	if (multiState)
+	{
+		delete multiState;
+		multiState = nullptr;
+	}
+
+	dirty = true;
 
 	if (stack.size() > 0)
 	{
 		s = stack.back();
 		s->EnterState();
-		window.DrawWindow();
+		window.DrawWindow(true);
 	}
+}
+
+void StateStack::ReloadTop()
+{
+	auto s = GetState();
+	if (!s)
+		return;
+
+	s->LeaveState();
+	s->EnterState();
+	window.DrawWindow(true);
 }
 
 // TrackingWindow
 
 TrackingWindow::TrackingWindow(string fName, track_time startTime)
-	:project(fName), stack(*this), timebar(*this)
+	:project(fName), stack(*this), timebar(this)
 {
 	namedWindow(windowName, 1);
 
@@ -230,10 +290,11 @@ TrackingWindow::TrackingWindow(string fName, track_time startTime)
 	ReadCleanFrame();
 
 	setMouseCallback(windowName, &OnClick, this);
+	createTrackbar("FPS", windowName, &maxFPS, 120);
 	createTrackbar("Position", windowName, 0, 1000, &OnTrackbar, this);
 	UpdateTrackbar();
 
-	stack.PushState(new StatePaused(this));
+	stack.PushState(new StatePlayer(this));
 
 	if (project.sets.size() > 0)
 	{
@@ -257,9 +318,11 @@ bool TrackingWindow::IsPlaying()
 	return isPlaying;
 }
 
-void TrackingWindow::DrawWindow()
+void TrackingWindow::DrawWindow(bool b)
 {
 	drawRequested = true;
+	if (b)
+		buttonUpdateRequested = true;
 }
 
 void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
@@ -273,13 +336,19 @@ void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
 
 	inFrame->download(outFrame, stream);
 
+	if (buttonUpdateRequested)
+	{
+		buttons.clear();
+		s->UpdateButtons(buttons);
+		buttonUpdateRequested = false;
+	}
+
 	s->AddGui(outFrame);
-	for (auto& b : s->buttons)
+	for (auto& b : buttons)
 	{
 		b.Draw(outFrame);
 	}
 
-	timebar.AddGui(outFrame);
 	putText(outFrame, "State: " + s->GetName(), Point(30, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
 	if (videoScale != 1)
@@ -346,6 +415,9 @@ void TrackingWindow::RunOnce()
 		drawRequested = false;
 	}
 
+	if (stack.IsDirty())
+		return;
+
 	// Keyboard handling
 	char k = waitKey(1);
 	if (k == lastKey)
@@ -353,7 +425,7 @@ void TrackingWindow::RunOnce()
 
 	if (k == 'q')
 		stack.PopState();
-	else
+	else if(k > 0)
 		s->HandleInput(k);
 
 	lastKey = k;
@@ -366,14 +438,14 @@ void TrackingWindow::OnTrackbar(int v, void* p)
 	if (!s)
 		return;
 
-	if (s->GetName() != "Paused")
+	if (me->isPlaying || s->GetName() == "Tracking")
 	{
 		me->UpdateTrackbar();
 		return;
 	}
 
 	track_time t = mapValue<int, track_time>(v, 0, 1000, 0, me->GetDuration());
-	me->SetPosition(t);
+	me->SetPosition(t, false);
 }
 
 void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
@@ -393,8 +465,11 @@ void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 
 	if (e == EVENT_MOUSEMOVE)
 	{
-		for (auto& b : s->buttons)
+		for (auto& b : me->buttons)
 		{
+			if (b.customHover)
+				continue;
+
 			bool hover = b.IsSelected(x, y);
 
 			if (hover != b.hover)
@@ -406,7 +481,7 @@ void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 	}
 	else if (e == EVENT_LBUTTONDOWN)
 	{
-		for (auto& b : s->buttons)
+		for (auto& b : me->buttons)
 		{
 			if (b.IsSelected(x, y))
 			{
@@ -419,7 +494,7 @@ void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 	{
 		if (me->pressingButton)
 		{
-			for (auto& b : s->buttons)
+			for (auto& b : me->buttons)
 			{
 				if (b.IsSelected(x, y))
 				{
@@ -433,17 +508,11 @@ void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 		me->pressingButton = false;
 	}
 
-	if (s->ShouldPop())
-	{
-		me->stack.PopState();
-		handled = true;
-	}
-
 	if(!handled)
 		s->HandleMouse(e, x, y, f);
 }
 
-void TrackingWindow::SetPosition(track_time position)
+void TrackingWindow::SetPosition(track_time position, bool updateTrackbar)
 {
 	if (!videoReader->Seek(position))
 		cout << "Seek failed\n";
@@ -452,7 +521,12 @@ void TrackingWindow::SetPosition(track_time position)
 
 	ReadCleanFrame(stream);
 	ReadCleanFrame(stream);
+	ReadCleanFrame(stream);
+	ReadCleanFrame(stream);
+	ReadCleanFrame(stream);
 
+	if(updateTrackbar)
+		UpdateTrackbar();
 	ReallyDrawWindow(stream);
 }
 
@@ -483,7 +557,7 @@ TrackingSet* TrackingWindow::AddSet()
 	//if (it != sets.end() && it->timeStart == t)
 	//	return nullptr;
 	
-	it = project.sets.emplace(it, GetCurrentPosition(), GetDuration());
+	it = project.sets.emplace(it, t, t);
 	return &(*it);
 }
 

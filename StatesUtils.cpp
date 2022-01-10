@@ -4,7 +4,12 @@
 StateConfirm::StateConfirm(TrackingWindow* window, string title, ConfirmCallback callback, StateFailedCallback failedCallback)
 	:StateBase(window), callback(callback), failedCallback(failedCallback)
 {
-	AddButton("Yes", 'y');
+	
+}
+
+void StateConfirm::UpdateButtons(vector<GuiButton>& out)
+{
+	AddButton(out, "Yes", 'y');
 }
 
 void StateConfirm::AddGui(Mat& frame)
@@ -21,24 +26,25 @@ void StateConfirm::LeaveState()
 		failedCallback();
 }
 
-void StateConfirm::HandleInput(char c)
+bool StateConfirm::HandleInput(char c)
 {
 	if (c == 'y')
 	{
 		confirmed = true;
 		Pop();
+		return true;
 	}
+
+	return false;
 }
 
-
-
-void StateSelectRoi::HandleMouse(int e, int x, int y, int f)
+bool StateSelectRoi::HandleMouse(int e, int x, int y, int f)
 {
 	if (p1.x == -1 && p1.y == -1 && e == EVENT_LBUTTONDOWN)
 	{
 		p1.x = x;
 		p1.y = y;
-		return;
+		return true;
 	}
 
 	if (p1.x != -1 && p1.y != -1)
@@ -48,22 +54,25 @@ void StateSelectRoi::HandleMouse(int e, int x, int y, int f)
 
 		if (e == EVENT_LBUTTONUP && (abs(p1.x - p2.x) + abs(p1.y - p2.y)) > 5)
 		{
-			Rect2f r(p1, p2);
+			Rect r(p1, p2);
 			callback(r);
 			returned = true;
 			Pop();
-			return;
+			return true;
 		}
 
 		if (e == EVENT_RBUTTONUP)
 		{
 			failedCallback();
 			Pop();
-			return;
+			return true;
 		}
 
 		window->DrawWindow();
+		return true;
 	}
+
+	return false;
 }
 
 void StateSelectRoi::AddGui(Mat& frame)
@@ -79,4 +88,15 @@ void StateSelectRoi::AddGui(Mat& frame)
 	{
 		appendGuiFunction(frame);
 	}
+}
+
+bool StateGlobal::HandleInput(char c)
+{
+	if (c == 's')
+	{
+		window->project.Save();
+		return true;
+	}
+
+	return false;
 }

@@ -7,20 +7,24 @@
 #include <opencv2/cudaoptflow.hpp>
 #include <opencv2/core/cuda.hpp>
 #include <opencv2/dnn.hpp>
+#include "magic_enum.hpp"
 
 using namespace cv;
+using namespace std;
 
 #include "Main.h"
 
-enum FrameVariant
+class TrackerJT;
+
+struct TrackerJTStruct
 {
-    UNKNOWN,
-    GPU_RGBA,
-    GPU_GREY,
-    GPU_RGB,
-    LOCAL_RGB,
-    LOCAL_GREY
+    TrackerJTType type;
+    TRACKING_TYPE trackingType;
+    string name;
+    function<TrackerJT* (TrackingTarget& target, TrackingState& state)> Create;
 };
+
+TrackerJTStruct GetTracker(TrackerJTType type);
 
 class FrameCache
 {
@@ -55,13 +59,13 @@ protected:
     map<FrameVariant, someFrame> cache;
 
     void* current = nullptr;
-    FrameVariant currentType = FrameVariant::UNKNOWN;
+    FrameVariant currentType = FrameVariant::VARIANT_UNKNOWN;
 };
 
 class TrackerJT
 {
 public:
-    TrackerJT(TrackingTarget& target, TrackingTarget::TrackingState& state, TRACKING_TYPE type, const char* name, FrameVariant frameType);
+    TrackerJT(TrackingTarget& target, TrackingState& state, TRACKING_TYPE type, const char* name, FrameVariant frameType);
 
     void init();
     bool update(cuda::Stream& stream = cuda::Stream::Null());
@@ -75,15 +79,15 @@ protected:
     virtual bool updateInternal(void* frame, cuda::Stream& stream = cuda::Stream::Null()) = 0;
 
     TRACKING_TYPE type;
-    TrackingTarget::TrackingState& state;
+    TrackingState& state;
     const char* name;
-    FrameVariant frameType = FrameVariant::UNKNOWN;
+    FrameVariant frameType = FrameVariant::VARIANT_UNKNOWN;
 };
 
 class GpuTrackerGOTURN : public TrackerJT
 {  
 public:
-    GpuTrackerGOTURN(TrackingTarget& target, TrackingTarget::TrackingState& state);
+    GpuTrackerGOTURN(TrackingTarget& target, TrackingState& state);
 
 protected:
 
@@ -97,10 +101,10 @@ protected:
 class GpuTrackerPoints : public TrackerJT
 {
 public:
-    GpuTrackerPoints(TrackingTarget& target, TrackingTarget::TrackingState& state);
+    GpuTrackerPoints(TrackingTarget& target, TrackingState& state);
 
 protected:
-    struct PointState
+    struct GpuPointState
     {
         int cudaIndex;
         int cudaIndexNew;
@@ -111,7 +115,7 @@ protected:
 
     cuda::GpuMat image_;
     cuda::GpuMat points_;
-    map<TrackingTarget::PointState*, PointState> pointStates;
+    map<PointState*, GpuPointState> pointStates;
 
     Ptr<cuda::SparsePyrLKOpticalFlow> opticalFlowTracker;
 };
@@ -119,7 +123,7 @@ protected:
 class TrackerOpenCV : public TrackerJT
 {
 public:
-    TrackerOpenCV(TrackingTarget& target, TrackingTarget::TrackingState& state, Ptr<Tracker> tracker, const char* trackerName);
+    TrackerOpenCV(TrackingTarget& target, TrackingState& state, Ptr<Tracker> tracker, const char* trackerName);
 
     virtual const char* GetName();
 
