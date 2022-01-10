@@ -1,10 +1,11 @@
 #include "TrackerKCF.h"
 #include "featureColorName.cpp"
 
-#include "opencl_kernels_tracking.hpp"
+#include "opencl_kernels_tracking.h"
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/cudaarithm.hpp>
 
+#include <iostream>
 #include <complex>
 #include <cmath>
 
@@ -62,7 +63,7 @@ void MatType(Mat inputMat)
 /*
 * Constructor
 */
-GpuTrackerKCFImpl::GpuTrackerKCFImpl(const TrackerKCF::Params& parameters, TrackingTarget& target, TrackingTarget::TrackingState& state) :
+GpuTrackerKCFImpl::GpuTrackerKCFImpl(const TrackerKCF::Params& parameters, TrackingTarget& target, TrackingStatus& state) :
     params(parameters),
     TrackerJT(target, state, TRACKING_TYPE::TYPE_RECT, __func__, FrameVariant::GPU_RGB)
 {

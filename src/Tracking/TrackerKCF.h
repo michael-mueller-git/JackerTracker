@@ -20,7 +20,7 @@ public:
         CUSTOM = (1 << 2)
     };
 
-    GpuTrackerKCFImpl(const TrackerKCF::Params& parameters, TrackingTarget& target, TrackingTarget::TrackingState& state);
+    GpuTrackerKCFImpl(const TrackerKCF::Params& parameters, TrackingTarget& target, TrackingStatus& state);
 
     virtual void initInternal(void* imagePtr);
     virtual bool updateInternal(void* imagePtr);
@@ -94,9 +94,9 @@ private:
     std::vector<Scalar> average_data;
     Mat img_Patch;
 
-    vector<cuda::GpuMat> gpu_xf_data;
-    vector<cuda::GpuMat> gpu_yf_data;
-    vector<cuda::GpuMat> gpu_layers;
+    std::vector<cuda::GpuMat> gpu_xf_data;
+    std::vector<cuda::GpuMat> gpu_yf_data;
+    std::vector<cuda::GpuMat> gpu_layers;
 
     // storage for the extracted features, KRLS model, KRLS compressed model
     Mat X[2], Z[2], Zc[2];

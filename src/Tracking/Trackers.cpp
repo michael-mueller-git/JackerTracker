@@ -1,10 +1,12 @@
 #include "Trackers.h"
-#include <opencv2/dnn.hpp>
+
 #include <opencv2/cudawarping.hpp>
-#include <opencv2/cudaarithm.hpp>
 #include <opencv2/cudaimgproc.hpp>
-#include <opencv2/highgui.hpp>
-#include <typeinfo>
+#include <opencv2/cudaarithm.hpp>
+#include <opencv2/tracking/tracking_legacy.hpp>
+
+using namespace std;
+using namespace cv;
 
 FrameCache* FRAME_CACHE = new FrameCache();
 
@@ -155,7 +157,7 @@ TrackerJTStruct GetTracker(TrackerJTType type)
 }
 
 // TrackerJT
-TrackerJT::TrackerJT(TrackingTarget& target, TrackingState& state, TRACKING_TYPE type, const char* name, FrameVariant frameType)
+TrackerJT::TrackerJT(TrackingTarget& target, TrackingStatus& state, TRACKING_TYPE type, const char* name, FrameVariant frameType)
     :state(state), type(type), name(name), frameType(frameType)
 {
     assert(target.SupportsTrackingType(type));
@@ -185,7 +187,7 @@ bool TrackerJT::update(cuda::Stream& stream)
 
 // GpuTrackerGOTURN
 
-GpuTrackerGOTURN::GpuTrackerGOTURN(TrackingTarget& target, TrackingState& state)
+GpuTrackerGOTURN::GpuTrackerGOTURN(TrackingTarget& target, TrackingStatus& state)
     :TrackerJT(target, state, TRACKING_TYPE::TYPE_RECT, __func__, FrameVariant::GPU_RGB)
 {
     type = TRACKING_TYPE::TYPE_RECT;
@@ -286,8 +288,8 @@ bool GpuTrackerGOTURN::updateInternal(void* image, cuda::Stream& stream)
 
 // GpuTrackerPoints
 
-GpuTrackerPoints::GpuTrackerPoints(TrackingTarget& target, TrackingState& state)
-    :TrackerJT(target, state, TRACKING_TYPE::TYPE_POINTS, __func__, FrameVariant::GPU_GREY)
+GpuTrackerPoints::GpuTrackerPoints(TrackingTarget& target, TrackingStatus& state)
+    :TrackerJT(target, state, TRACKING_TYPE::TYPE_POINTS, __func__, FrameVariant::GPU_RGB)
 {
     opticalFlowTracker = cuda::SparsePyrLKOpticalFlow::create(
         Size(15, 15),
@@ -413,7 +415,7 @@ bool GpuTrackerPoints::updateInternal(void* image, cuda::Stream& stream)
 
 // TrackerOpenCV
 
-TrackerOpenCV::TrackerOpenCV(TrackingTarget& target, TrackingState& state, Ptr<Tracker> tracker, const char* trackerName)
+TrackerOpenCV::TrackerOpenCV(TrackingTarget& target, TrackingStatus& state, Ptr<Tracker> tracker, const char* trackerName)
     :TrackerJT(target, state, TRACKING_TYPE::TYPE_RECT, __func__, FrameVariant::LOCAL_RGB)
     , tracker(tracker)
     , trackerName(trackerName)
@@ -430,7 +432,15 @@ void TrackerOpenCV::initInternal(void* image)
 bool TrackerOpenCV::updateInternal(void* image, cuda::Stream& stream)
 {
     Mat& m = *(Mat*)image;
-    return tracker->update(m, state.rect);
+    try {
+        return tracker->update(m, state.rect);
+    }
+    catch (exception e)
+    {
+        state.active = false;
+    }
+
+    return false;
 }
 
 const char* TrackerOpenCV::GetName()

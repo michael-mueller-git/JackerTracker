@@ -44,35 +44,18 @@ add_subdirectory(lib/fftw)
 	endif()
 #Guid end
 
-add_executable(${PROJECT_NAME}
-	Main.cpp
-	Main.h
-	TrackingWindow.cpp
-	TrackingWindow.h
-	States.cpp
-	States.h
-	StatesUtils.cpp
-	StatesUtils.h
-	Trackers.cpp
-	Trackers.h
-	
-	#TrackerKCF.cpp
-	#TrackerKCF.h
-	opencl_kernels_tracking.cpp
-	opencl_kernels_tracking.h
-	
-	Reader/VideoReader.cpp
-	Reader/VideoReader.h
-	Reader/NvDecoder.cpp
-	Reader/NvDecoder.h
-	Reader/nv12_to_rgb.cu
-	
-	Reader/FFmpegDemuxer.h
-	Reader/NvCodecUtils.h
-	Reader/Logger.h
+file(GLOB_RECURSE sources
+     "src/*.h"
+     "src/*.cpp"
 )
+list(APPEND sources "src/Reader/nv12_to_rgb.cu")
+
+add_executable(${PROJECT_NAME} ${sources})
 
 set_source_files_properties(Reader/nv12_to_rgb.cu PROPERTIES LANGUAGE CUDA)
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src FILES ${sources})
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 
 target_include_directories(${PROJECT_NAME} PUBLIC
 	${OpenCV_INCLUDE_DIRS}
@@ -81,6 +64,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 	lib/fftw/api
 	lib/json
 	lib/magic_enum/include
+	src
 )
 
 set_target_properties(${PROJECT_NAME}
