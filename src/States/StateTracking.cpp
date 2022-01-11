@@ -176,9 +176,9 @@ void StateTracking::Update()
 	// Run all trackers on the new frame
 	for (auto& b : trackerBindings)
 	{
-		auto now = high_resolution_clock::now();
+		auto now = steady_clock::now();
 		b.tracker->update(stream);
-		b.lastUpdateMs = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count();
+		b.lastUpdateMs = duration_cast<chrono::milliseconds>(steady_clock::now() - now).count();
 	}
 
 	stream.waitForCompletion();

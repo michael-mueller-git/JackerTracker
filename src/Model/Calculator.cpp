@@ -158,7 +158,7 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 
 	std::vector<TrackingEvent> eventsFiltered;
 
-	time_t timeFrom = max(0LL, t - 10000);
+	time_t timeFrom = max(time_t(0LL), t - 10000);
 	time_t timeTo = t + 10000;
 
 	copy_if(

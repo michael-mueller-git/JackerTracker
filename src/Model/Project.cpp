@@ -1,9 +1,24 @@
 #include "Project.h"
 
+#if WIN32
 #include <Windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <filesystem>
 #include <fstream>
 #include <magic_enum.hpp>
+
+#ifndef MAX_PATH
+#define MAX_PATH 4096
+#endif
+
+#if WIN32
+#define PATH_SEP "\\"
+#else
+#define PATH_SEP "/"
+#endif
 
 using namespace std;
 
@@ -23,11 +38,15 @@ Project::~Project()
 string Project::GetConfigPath()
 {
 	char binary[MAX_PATH];
+#if WIN32
 	GetModuleFileNameA(NULL, binary, MAX_PATH);
+#else
+    (void)readlink("/proc/self/exe", binary, PATH_MAX);
+#endif
 
 	filesystem::path binaryPath = binary;
 	filesystem::path videoPath = video;
-	string configFile = binaryPath.parent_path().string() + "\\" + videoPath.filename().replace_extension().string() + ".json";
+	string configFile = binaryPath.parent_path().string() + PATH_SEP + videoPath.filename().replace_extension().string() + ".json";
 
 	return configFile;
 }

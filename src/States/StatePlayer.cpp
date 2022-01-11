@@ -3,6 +3,7 @@
 #include "Gui/TrackingWindow.h"
 
 #include <chrono>
+#include <thread>
 #include <opencv2/imgproc.hpp>
 
 using namespace std;
@@ -18,7 +19,7 @@ void StatePlayer::UpdateButtons(vector<GuiButton>& out)
 void StatePlayer::UpdateFPS()
 {
 	// Calc FPS
-	auto now = high_resolution_clock::now();
+	auto now = steady_clock::now();
 	int diffMs = duration_cast<chrono::milliseconds>(now - timer).count();
 	timerFrames++;
 	if (diffMs >= 200) {
@@ -83,7 +84,7 @@ bool StatePlayer::HandleInput(char c)
 
 		if (playing)
 		{
-			lastUpdate = high_resolution_clock::now();
+			lastUpdate = steady_clock::now();
 		}
 
 		return true;
@@ -109,7 +110,7 @@ void StatePlayer::SyncFps()
 	if (window->maxFPS == 0)
 		return;
 
-	auto n = high_resolution_clock::now();
+	auto n = steady_clock::now();
 
 	int deltaMs = duration_cast<chrono::milliseconds>(n - lastUpdate).count();
 	int waitMs = 1000 / window->maxFPS;

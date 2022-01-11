@@ -10,6 +10,14 @@ find_library(AVUTIL_LIBRARY avutil)
 find_library(swresample_LIBRARY swresample)
 
 add_subdirectory(lib/fftw)
+include_directories(lib/magic_enum/include)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/lib/crossguid/cmake")
+
+option (ARCH_LINUX "Build on Arch Linux" ON)
+
+if (ARCH_LINUX)
+    include_directories(/opt/cuda/targets/x86_64-linux/include /usr/include/nvidia-sdk/ /usr/include/opencv4/opencv2)
+endif()
 
 #Guid start
 	add_library(
