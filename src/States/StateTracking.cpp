@@ -117,7 +117,7 @@ bool StateTracking::RemovePoints(Rect r)
 
 	for (auto& tb : trackerBindings)
 	{
-		if (tb.trackerStruct.type != TRACKING_TYPE::TYPE_POINTS)
+		if (tb.trackerStruct.trackingType != TRACKING_TYPE::TYPE_POINTS)
 			continue;
 
 		for (int i = tb.state->points.size(); i > 0; i--)

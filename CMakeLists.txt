@@ -13,7 +13,7 @@ add_subdirectory(lib/fftw)
 include_directories(lib/magic_enum/include)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/lib/crossguid/cmake")
 
-option (ARCH_LINUX "Build on Arch Linux" ON)
+option (ARCH_LINUX "Build on Arch Linux" OFF)
 
 if (ARCH_LINUX)
     include_directories(/opt/cuda/targets/x86_64-linux/include /usr/include/nvidia-sdk/ /usr/include/opencv4/opencv2)
