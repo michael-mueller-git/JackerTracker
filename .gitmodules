@@ -4,3 +4,6 @@
 [submodule "lib/opencv_contrib"]
 	path = lib/opencv_contrib
 	url = https://github.com/opencv/opencv_contrib
+[submodule "lib/crossguid"]
+	path = lib/crossguid
+	url = https://github.com/graeme-hill/crossguid.git
