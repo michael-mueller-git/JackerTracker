@@ -13,3 +13,6 @@
 [submodule "lib/ossp-uuid"]
 	path = lib/ossp-uuid
 	url = https://github.com/sean-/ossp-uuid.git
+[submodule "lib/goturn"]
+	path = lib/goturn
+	url = https://github.com/Mogball/goturn-files.git
