@@ -20,7 +20,7 @@ public:
 		
 	}
 
-	virtual void EnterState() {};
+	virtual void EnterState(bool again = false) {};
 	virtual void LeaveState() {};
 
 	virtual void UpdateButtons(std::vector<GuiButton>& out)
@@ -33,7 +33,7 @@ public:
 	};
 	virtual void AddGui(cv::Mat& frame) { ; }
 	virtual void Update() {};
-	virtual bool HandleInput(char c) { return false; };
+	virtual bool HandleInput(int c) { return false; };
 	virtual bool HandleMouse(int e, int x, int y, int f) { return false; };
 	virtual std::string GetName() const = 0;
 
@@ -95,7 +95,7 @@ public:
 		AddButton(out, "Save", 's');
 	}
 
-	bool HandleInput(char c) override;
+	bool HandleInput(int c) override;
 
 	std::string GetName() const { return "Global"; }
 };

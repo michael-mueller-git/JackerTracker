@@ -24,9 +24,9 @@ public:
 		states.push_back({ state , own });
 	}
 
-	void EnterState()
+	void EnterState(bool again)
 	{
-		states.at(0).state->EnterState();
+		states.at(0).state->EnterState(again);
 	};
 
 	void LeaveState()
@@ -54,7 +54,7 @@ public:
 			s.state->Update();
 	};
 
-	bool HandleInput(char c)
+	bool HandleInput(int c)
 	{
 		for (auto s : states)
 			if (s.state->HandleInput(c))

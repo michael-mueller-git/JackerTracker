@@ -4,6 +4,7 @@
 #include <opencv2/imgproc.hpp>
 
 using namespace cv;
+using namespace std;
 
 TrackingCalculator::TrackingCalculator()
 {
@@ -28,9 +29,8 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 				if (scale != newScale)
 				{
 					scale = newScale;
-					set.events.emplace_back(EventType::TET_SCALE, t);
-					set.events.back().size = scale;
-					set.events.back().targetGuid = backgroundTarget->GetGuid();
+					TrackingEvent& e = set.AddEvent(EventType::TET_SCALE, t, backgroundTarget);
+					e.size = scale;
 				}
 
 			}
@@ -57,6 +57,7 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 
 		malePoint = maleResult->point;
 		femalePoint = femaleResult->point;
+		lockedOn = true;
 		break;
 
 	case TrackingMode::TM_DIAGONAL_SINGLE:
@@ -72,7 +73,7 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 		break;
 	}
 
-	float distance = 0;
+	int distance = 0;
 	int x, y;
 
 	switch (set.trackingMode) {
@@ -80,18 +81,18 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 		y = (malePoint.y + femalePoint.y) / 2;
 		malePoint.y = y;
 		femalePoint.y = y;
-		distance = (float)norm(malePoint - femalePoint) * scale;
+		distance = norm(malePoint - femalePoint) * scale;
 		break;
 	
 	case TrackingMode::TM_VERTICAL:
 		x = (malePoint.x + femalePoint.x) / 2;
 		malePoint.x = x;
 		femalePoint.x = x;
-		distance = (float)norm(malePoint - femalePoint) * scale;
+		distance = norm(malePoint - femalePoint) * scale;
 		break;
 
 	case TrackingMode::TM_DIAGONAL:
-		distance = (float)norm(malePoint - femalePoint) * scale;
+		distance = norm(malePoint - femalePoint) * scale;
 		break;
 
 	case TrackingMode::TM_DIAGONAL_SINGLE:
@@ -109,43 +110,111 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 		return false;
 	}
 
-	if (distanceMin == 0)
-		distanceMin = distance;
-	else
-		distanceMin = min(distanceMin, distance);
+	float newMin, newMax;
 
-	if (distanceMax == 0)
-		distanceMax = distance;
-	else
-		distanceMax = max(distanceMax, distance);
+	TrackingEvent* distanceEvent = set.GetResult(t, EventType::TET_POSITION_RANGE, nullptr, true);
 
-	float newPosition = mapValue<int, float>(distance, distanceMin, distanceMax, 0, 1);
+	if (!distanceEvent)
+	{
+		distanceEvent = &set.AddEvent(EventType::TET_POSITION_RANGE, t);
+		distanceEvent->minDistance = distance - 1;
+		distanceEvent->maxDistance = distance;
+	}
+	else
+	{
+		int newMin = min(distanceEvent->minDistance, distance);
+		int newMax = max(distanceEvent->maxDistance, distance);
+
+		if (newMin != distanceEvent->minDistance || newMax != distanceEvent->maxDistance)
+		{
+			distanceEvent = &set.AddEvent(EventType::TET_POSITION_RANGE, t);
+			distanceEvent->minDistance = newMin;
+			distanceEvent->maxDistance = newMax;
+		}
+	}
+
+	
+	float newPosition = mapValue<int, float>(distance, distanceEvent->minDistance, distanceEvent->maxDistance, 0, 1);
 	float d = position - newPosition;
+	//int dTime = lastPositionUpdate - t;
 
-	if (d < 0 && up)
-	{
-		up = false;
-		set.events.emplace_back(EventType::TET_POSITION, t);
-		set.events.back().position = position;
-	}
-	else if (d > 0 && !up)
-	{
-		up = true;
+	//if (abs(d) > 0.08 || dTime > 200) {
+		if (d < 0 && up)
+		{
+			up = false;
+			TrackingEvent& e = set.AddEvent(EventType::TET_POSITION, t);
+			e.size = distance;
+			e.position = position;
+			lastPositionUpdate = t;
+		}
+		else if (d > 0 && !up)
+		{
+			up = true;
 
-		set.events.emplace_back(EventType::TET_POSITION, t);
-		set.events.back().position = position;
-	}
+			TrackingEvent& e = set.AddEvent(EventType::TET_POSITION, t);
+			e.size = distance;
+			e.position = position;
+			lastPositionUpdate = t;
+		}
+	//}
 
 	position = newPosition;
 
 	return true;
 }
 
+void TrackingCalculator::Recalc(TrackingSet& set, time_t t)
+{
+	TrackingEvent* rangeEvent = set.GetResult(t, EventType::TET_POSITION_RANGE);
+	if (!rangeEvent)
+		return;
+
+	vector<TrackingEvent*> events;
+	set.GetEvents(t + 1, set.timeEnd, events);
+
+	for (auto e : events)
+	{
+		if (e->type == EventType::TET_POSITION_RANGE)
+			return;
+
+		if (e->type != EventType::TET_POSITION)
+			continue;
+
+		if (e->size < rangeEvent->minDistance)
+			e->position = 0;
+		else if (e->size > rangeEvent->maxDistance)
+			e->position = 1;
+		else
+			e->position = mapValue<int, float>(e->size, rangeEvent->minDistance, rangeEvent->maxDistance, 0, 1);
+	}
+}
+
+void DrawReferenceLineMiddle(Mat& frame, int length, double angle, Point middle, Scalar color)
+{
+	Point2f p1(
+		round(middle.x + (length / 2) * cos(angle)),
+		round(middle.y + (length / 2) * sin(angle))
+	);
+	Point2f p2(
+		round(middle.x + (-length / 2) * cos(angle)),
+		round(middle.y + (-length / 2) * sin(angle))
+	);
+
+	line(frame, p1, p2, color, 8);
+}
+
+void DrawReferenceLineAngle(Mat& frame, int length, double angle, Point p1, Scalar color)
+{
+	Point2f p2(
+		round(p1.x + length * cos(angle)),
+		round(p1.y + length * sin(angle))
+	);
+
+	line(frame, p1, p2, color, 8);
+}
+
 void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool livePosition, bool drawState)
 {
-	if(lockedOn)
-		line(frame, malePoint, femalePoint, Scalar(255, 255, 255), 2);
-
 	int barHeight = 300;
 
 	int barBottom = frame.size().height - barHeight - 30;
@@ -156,19 +225,12 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 		2
 	);
 
-	std::vector<TrackingEvent> eventsFiltered;
+	std::vector<TrackingEvent*> eventsFiltered;
 
 	time_t timeFrom = max(0LL, t - 10000);
 	time_t timeTo = t + 10000;
 
-	copy_if(
-		set.events.begin(),
-		set.events.end(),
-		back_inserter(eventsFiltered),
-		[timeFrom, timeTo](auto& e) {
-			return e.time >= timeFrom && e.time <= timeTo;
-		}
-	);
+	set.GetEvents(timeFrom, timeTo, eventsFiltered);
 
 	TrackingEvent* e1 = nullptr;
 	TrackingEvent* e2 = nullptr;
@@ -177,7 +239,7 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 	{
 		for (int i = 0; i < eventsFiltered.size(); i++)
 		{
-			auto& e = eventsFiltered.at(i);
+			TrackingEvent& e = *eventsFiltered.at(i);
 
 			if (e.type != EventType::TET_POSITION)
 				continue;
@@ -224,12 +286,43 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 	Point lastPointPosition(-1, -1);
 	int stateIndex = 0;
 	time_t stateTime = 0;
+	time_t lastBad = 0;
+	time_t trailTime = max(0LL, t - 2000);
+	TrackingEvent* maleEvent = nullptr;
+	TrackingEvent* femaleEvent = nullptr;
 
-	for (auto& e : eventsFiltered)
+	for (auto ePtr : eventsFiltered)
 	{
+		TrackingEvent& e = *ePtr;
+
+		if (e.time == t && e.type == EventType::TET_POINT)
+		{
+			for (auto& t : set.targets)
+			{
+				if (t.GetGuid() != e.targetGuid)
+					continue;
+					
+				if (t.targetType == TARGET_TYPE::TYPE_MALE)
+					maleEvent = ePtr;
+
+				if (t.targetType == TARGET_TYPE::TYPE_FEMALE)
+					femaleEvent = ePtr;
+			}
+		}
+
+		if (e.type == EventType::TET_POINT && e.time < t && e.time > trailTime)
+		{
+			Scalar c(
+				mapValue<time_t, int>(e.time, trailTime, t, 50, 255),
+				0,
+				0
+			);
+
+			circle(frame, e.point, 2, c, 2);
+		}
+
 		if (e.type == EventType::TET_POSITION)
 		{
-
 			x = mapValue<int, int>(e.time - timeFrom, 0, timeTo - timeFrom, 0, frame.cols);
 			y = mapValue<float, int>(e.position, 0, 1, graphTop, graphBottom);
 			Point p(x, y);
@@ -244,23 +337,66 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 			lastPointPosition = p;
 		}
 
-		if (drawState)
+		if (e.type == EventType::TET_BADFRAME)
 		{
-			if (e.type == EventType::TET_STATE)
-			{
-				if (stateTime == 0)
-				{
-					if (e.time >= t)
-						stateTime = e.time;
-				}
+			if (e.time == lastBad)
+				continue;
 
-				if (stateTime != 0 && e.time == stateTime)
-				{
-					e.state.UpdateColor(stateIndex);
-					e.state.Draw(frame);
-					stateIndex++;
-				}
+			x = mapValue<int, int>(e.time - timeFrom, 0, timeTo - timeFrom, 0, frame.cols);
+			line(frame, Point(x, graphTop), Point(x, graphBottom), Scalar(0, 0, 255), 2);
+
+			lastBad = e.time;
+		}
+
+		if (drawState && e.type == EventType::TET_STATE)
+		{
+			if (stateTime == 0)
+			{
+				if (e.time >= t)
+					stateTime = e.time;
+			}
+
+			if (stateTime != 0 && e.time == stateTime)
+			{
+				e.state.UpdateColor(stateIndex);
+				e.state.Draw(frame);
+				stateIndex++;
 			}
 		}
+	}
+
+	TrackingEvent* distanceEvent = set.GetResult(t, EventType::TET_POSITION_RANGE, nullptr, true);
+
+	if (!livePosition)
+	{
+		if (maleEvent && femaleEvent)
+		{
+			malePoint = maleEvent->point;
+			femalePoint = femaleEvent->point;
+			
+			lockedOn = true;
+		}
+		else
+		{
+			lockedOn = false;
+		}
+	}
+
+	if (lockedOn)
+	{
+		//Point middle = (malePoint + femalePoint) / 2;
+
+		double angle = atan2(
+			femalePoint.y - malePoint.y,
+			femalePoint.x - malePoint.x
+		);
+
+		if (distanceEvent)
+		{
+			DrawReferenceLineAngle(frame, distanceEvent->maxDistance, angle, malePoint, Scalar(0, 255, 0));
+			DrawReferenceLineAngle(frame, distanceEvent->minDistance, angle, malePoint, Scalar(0, 0, 255));
+		}
+
+		line(frame, malePoint, femalePoint, Scalar(255, 255, 255), 2);
 	}
 }

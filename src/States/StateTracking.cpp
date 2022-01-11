@@ -1,6 +1,7 @@
 #include "StateTracking.h"
 #include "StateSelectRoi.h"
 #include "Gui/TrackingWindow.h"
+#include "Model/TrackingEvent.h"
 
 #include <magic_enum.hpp>
 
@@ -16,19 +17,22 @@ StateTracking::StateTracking(TrackingWindow* window, TrackingSet* set)
 
 }
 
-void StateTracking::EnterState()
+void StateTracking::EnterState(bool again)
 {
-	StatePlayer::EnterState();
+	StatePlayer::EnterState(again);
 
 	window->timebar.SelectTrackingSet(set);
-	set->events.clear();
 	calculator.Reset();
 
 	cuda::GpuMat* gpuFrame = window->GetInFrame();
 	FRAME_CACHE->Update(gpuFrame, FrameVariant::GPU_RGBA);
 
 	if (trackerBindings.size() > 0)
+	{
 		trackerBindings.clear();
+	}
+
+	set->ClearEvents([](auto& e) { return e.type == EventType::TET_BADFRAME; });
 
 	trackerBindings.reserve(set->targets.size());
 
@@ -75,11 +79,16 @@ void StateTracking::UpdateButtons(vector<GuiButton>& out)
 
 	if (!playing)
 	{
+		auto me = this;
+
 		AddButton(out, "Remove points", 'r');
+		AddButton(out, "Remove bads", [me]() {
+			me->set->ClearEvents([](auto& e) { return e.type != EventType::TET_BADFRAME; });
+		});
 	}
 }
 
-bool StateTracking::HandleInput(char c)
+bool StateTracking::HandleInput(int c)
 {
 	if (StatePlayer::HandleInput(c))
 		return true;
@@ -130,7 +139,7 @@ bool StateTracking::RemovePoints(Rect r)
 			if (!inside)
 				continue;
 
-			tb.target->intialPoints.erase(tb.target->intialPoints.begin() + i - 1);
+			tb.target->initialPoints.erase(tb.target->initialPoints.begin() + i - 1);
 			ret = true;
 		}
 	}
@@ -165,25 +174,49 @@ void StateTracking::Update()
 		return;
 
 	UpdateFPS();
+	SyncFps();
+	NextFrame();
+	
+}
 
+void StateTracking::LastFrame()
+{
+	
+}
+
+void StateTracking::NextFrame()
+{
 	cuda::Stream stream;
 
 	window->ReadCleanFrame(stream);
 
 	cuda::GpuMat* gpuFrame = window->GetInFrame();
 	FRAME_CACHE->Update(gpuFrame, FrameVariant::GPU_RGBA);
+	time_t time = window->GetCurrentPosition();
+
 
 	// Run all trackers on the new frame
-	for (auto& b : trackerBindings)
+	if (!set->GetResult(time, EventType::TET_BADFRAME))
 	{
-		auto now = high_resolution_clock::now();
-		b.tracker->update(stream);
-		b.lastUpdateMs = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count();
+		for (auto& b : trackerBindings)
+		{
+
+			auto now = high_resolution_clock::now();
+			if (!b.tracker->update(stream))
+			{
+				set->AddEvent(EventType::TET_BADFRAME, time, b.target);
+			}
+
+			b.lastUpdateMs = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count();
+		}
+	}
+	else
+	{
+		bool err = true;
 	}
 
 	stream.waitForCompletion();
 
-	time_t time = window->GetCurrentPosition();
 	for (auto& b : trackerBindings)
 	{
 		b.state->SnapResult(*set, time);
@@ -192,7 +225,7 @@ void StateTracking::Update()
 	set->timeEnd = time;
 	calculator.Update(*set, time);
 
-	SyncFps();
+
 	window->DrawWindow();
 }
 
@@ -226,7 +259,7 @@ void StateTestTrackers::UpdateButtons(vector<GuiButton>& out)
 	}
 }
 
-void StateTestTrackers::EnterState()
+void StateTestTrackers::EnterState(bool again)
 {
 	window->timebar.SelectTrackingSet(set);
 
@@ -264,5 +297,45 @@ void StateTestTrackers::EnterState()
 	}
 
 	FRAME_CACHE->Clear();
-	window->SetPlaying(true);
+	SetPlaying(true);
+}
+
+void StateTestTrackers::NextFrame()
+{
+	cuda::Stream stream;
+
+	window->ReadCleanFrame(stream);
+
+	cuda::GpuMat* gpuFrame = window->GetInFrame();
+	FRAME_CACHE->Update(gpuFrame, FrameVariant::GPU_RGBA);
+	time_t time = window->GetCurrentPosition();
+
+	for (auto& b : trackerBindings)
+	{
+		auto now = high_resolution_clock::now();
+		b.tracker->update(stream);
+		b.lastUpdateMs = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count();
+	}
+
+	stream.waitForCompletion();
+	window->DrawWindow();
+}
+
+void StateTestTrackers::AddGui(Mat& frame)
+{
+	if (playing)
+		putText(frame, "Press space to pause", Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+	else
+		putText(frame, "Press space to continue", Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+
+	putText(frame, format("FPS=%d", drawFps), Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+
+	int y = 100;
+
+	for (auto& b : trackerBindings)
+	{
+		b.state->Draw(frame);
+		putText(frame, format("%s: %dms", b.tracker->GetName(), b.lastUpdateMs), Point(400, y), FONT_HERSHEY_SIMPLEX, 0.6, b.state->color, 2);
+		y += 20;
+	}
 }

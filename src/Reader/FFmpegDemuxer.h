@@ -30,7 +30,6 @@ extern "C" {
 class FFmpegDemuxer {
 private:
     AVFormatContext *fmtc = NULL;
-    AVIOContext *avioc = NULL;
     AVPacket pkt, pktFiltered; /*!< AVPacket stores compressed data typically exported by demuxers and then passed as input to decoders */
     AVBSFContext *bsfc = NULL;
 
@@ -177,33 +176,6 @@ private:
         }
     }
 
-    AVFormatContext *CreateFormatContext(DataProvider *pDataProvider) {
-
-        AVFormatContext *ctx = NULL;
-        if (!(ctx = avformat_alloc_context())) {
-            LOG(ERROR) << "FFmpeg error: " << __FILE__ << " " << __LINE__;
-            return NULL;
-        }
-
-        uint8_t *avioc_buffer = NULL;
-        int avioc_buffer_size = 8 * 1024 * 1024;
-        avioc_buffer = (uint8_t *)av_malloc(avioc_buffer_size);
-        if (!avioc_buffer) {
-            LOG(ERROR) << "FFmpeg error: " << __FILE__ << " " << __LINE__;
-            return NULL;
-        }
-        avioc = avio_alloc_context(avioc_buffer, avioc_buffer_size,
-            0, pDataProvider, &ReadPacket, NULL, NULL);
-        if (!avioc) {
-            LOG(ERROR) << "FFmpeg error: " << __FILE__ << " " << __LINE__;
-            return NULL;
-        }
-        ctx->pb = avioc;
-
-        ck(avformat_open_input(&ctx, NULL, NULL, NULL));
-        return ctx;
-    }
-
     /**
     *   @brief  Allocate and return AVFormatContext*.
     *   @param  szFilePath - Filepath pointing to input stream.
@@ -219,7 +191,7 @@ private:
 
 public:
     FFmpegDemuxer(const char *szFilePath, int64_t timescale = 1000 /*Hz*/) : FFmpegDemuxer(CreateFormatContext(szFilePath), timescale) {}
-    FFmpegDemuxer(DataProvider *pDataProvider) : FFmpegDemuxer(CreateFormatContext(pDataProvider)) {avioc = fmtc->pb;}
+    
     ~FFmpegDemuxer() {
 
         if (!fmtc) {
@@ -238,11 +210,6 @@ public:
         }
 
         avformat_close_input(&fmtc);
-
-        if (avioc) {
-            av_freep(&avioc->buffer);
-            av_freep(&avioc);
-        }
 
         if (pDataWithHeader) {
             av_free(pDataWithHeader);
@@ -266,19 +233,27 @@ public:
     int GetFrameSize() {
         return nWidth * (nHeight + nChromaHeight) * nBPP;
     }
-    bool Seek(int64_t pts) {
+    bool Seek(int64_t pts, bool backwards) {
 
-        int frameNum = av_rescale(
-            pts,
-            fmtc->streams[iVideoStream]->time_base.den,
-            fmtc->streams[iVideoStream]->time_base.num
-        ) / 1000;
+        pts = pts / timeBase / userTimeScale;
 
-        int ret = avformat_seek_file(fmtc, iVideoStream, 0, frameNum, frameNum, AVSEEK_FLAG_FRAME);
+        int flags = 0;
+        if (backwards)
+            flags |= AVSEEK_FLAG_BACKWARD;
+
+        //int ret = av_seek_frame(fmtc, iVideoStream, pts, flags);
+        int ret = avformat_seek_file(fmtc, iVideoStream, pts, pts, pts, flags);
         if (ret < 0)
         {
             LOG(ERROR) << "FFmpeg seek failed";
             return false;
+        }
+
+        avio_flush(fmtc->pb);
+        ret = avformat_flush(fmtc);
+
+        if (bMp4H264 || bMp4HEVC) {
+            av_bsf_flush(bsfc);
         }
 
         return true;
@@ -358,10 +333,6 @@ public:
         frameCount++;
 
         return true;
-    }
-
-    static int ReadPacket(void *opaque, uint8_t *pBuf, int nBuf) {
-        return ((DataProvider *)opaque)->GetData(pBuf, nBuf);
     }
 };
 

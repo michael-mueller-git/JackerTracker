@@ -98,6 +98,8 @@ public:
               int maxWidth = 0, int maxHeight = 0, unsigned int clkRate = 1000, bool force_zero_latency = false);
     ~NvDecoder();
 
+    void Flush();
+
     /**
     *  @brief  This function is used to get the output frame width.
     *  NV12/P016 output format width is 2 byte aligned because of U and V interleave
@@ -332,4 +334,6 @@ private:
     // latency for All-Intra and IPPP sequences, the below flag will enable
     // the display callback immediately after the decode callback.
     bool m_bForce_zero_latency = false;
+
+    CUVIDPARSERPARAMS videoParserParameters = {};
 };

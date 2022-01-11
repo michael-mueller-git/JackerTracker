@@ -14,20 +14,21 @@ TrackingWindow::TrackingWindow(string fName)
 	namedWindow(windowName, 1);
 
 	videoReader = VideoReader::create(fName);
-	ReadCleanFrame();
 
 	setMouseCallback(windowName, &OnClick, this);
-	createTrackbar("FPS", windowName, &maxFPS, 120);
+	createTrackbar("FPS", windowName, &project.maxFPS, 120);
 	createTrackbar("Position", windowName, 0, 1000, &OnTrackbar, this);
 	UpdateTrackbar();
 
-	stack.PushState(new StatePlayer(this));
+	stack.PushState(new StatePlayerImpl(this));
 
 	if (project.sets.size() > 0)
 	{
 		timebar.SelectTrackingSet(&project.sets.at(0));
 		stack.PushState(new StateEditSet(this, timebar.GetSelectedSet()));
 	}
+
+	ReadCleanFrame();
 }
 
 TrackingWindow::~TrackingWindow()
@@ -102,6 +103,12 @@ bool TrackingWindow::ReadCleanFrame(cuda::Stream& stream)
 		return false;
 	}
 
+	time_t frameTime = videoReader->GetPosition();
+	if (frameTime != lastFrameTime)
+	{
+		lastFrameTime = frameTime;
+	}
+
 	// Play audio
 
 	if (videoScale != 1)
@@ -111,7 +118,8 @@ bool TrackingWindow::ReadCleanFrame(cuda::Stream& stream)
 
 		Size s(w, h);
 
-		cuda::resize(*inFrame, *inFrame, s);
+		cuda::resize(*inFrame, resizeBuffer, s);
+		inFrame = &resizeBuffer;
 	}
 
 	return true;
@@ -122,6 +130,8 @@ void TrackingWindow::Run()
 	while (stack.GetState() != nullptr)
 		RunOnce();
 }
+
+#include <conio.h> // to support _getch
 
 void TrackingWindow::RunOnce()
 {
@@ -146,13 +156,14 @@ void TrackingWindow::RunOnce()
 		return;
 
 	// Keyboard handling
-	char k = waitKey(1);
+	int k = waitKeyEx(1);
 	if (k == lastKey)
 		return;
 
 	if (k == 'q')
 		stack.PopState();
-	else if(k > 0)
+
+	else if (k > 0)
 		s->HandleInput(k);
 
 	lastKey = k;
@@ -161,6 +172,10 @@ void TrackingWindow::RunOnce()
 void TrackingWindow::OnTrackbar(int v, void* p)
 {
 	TrackingWindow* me = (TrackingWindow*)p;
+
+	if (me->trackbarUpdating)
+		return;
+
 	auto s = me->stack.GetState();
 	if (!s)
 		return;
@@ -228,6 +243,7 @@ void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 					b.onClick();
 					me->drawRequested = true;
 					handled = true;
+					break;
 				}
 			}
 		}
@@ -245,10 +261,9 @@ void TrackingWindow::SetPosition(time_t position, bool updateTrackbar)
 
 	cuda::Stream stream;
 
-	ReadCleanFrame(stream);
-	ReadCleanFrame(stream);
-	ReadCleanFrame(stream);
-	ReadCleanFrame(stream);
+	time_t frameTime = lastFrameTime;
+	lastFrameTime = 0;
+	
 	ReadCleanFrame(stream);
 
 	if(updateTrackbar)
@@ -269,8 +284,10 @@ time_t TrackingWindow::GetDuration()
 
 void TrackingWindow::UpdateTrackbar()
 {
+	trackbarUpdating = true;
 	int t = mapValue<time_t, int>(GetCurrentPosition(), 0, GetDuration(), 0, 1000);
 	setTrackbarPos("Position", windowName, t);
+	trackbarUpdating = false;
 }
 
 TrackingSet* TrackingWindow::AddSet()
@@ -281,8 +298,8 @@ TrackingSet* TrackingWindow::AddSet()
 
 	auto it = find_if(project.sets.begin(), project.sets.end(), [t](TrackingSet& set) { return t <= set.timeStart; });
 	
-	//if (it != sets.end() && it->timeStart == t)
-	//	return nullptr;
+	if (it != project.sets.end() && it->timeStart == t)
+		return nullptr;
 	
 	it = project.sets.emplace(it, t, t);
 
@@ -290,17 +307,10 @@ TrackingSet* TrackingWindow::AddSet()
 	{
 		if (s.timeStart <= t && s.timeEnd >= t)
 		{
-			vector<TrackingEvent> eventsFiltered;
-			copy_if(
-				s.events.begin(),
-				s.events.end(),
-				back_inserter(eventsFiltered),
-				[t](auto& e) {
-					return e.time < t;
-				}
-			);
-
-			s.events = eventsFiltered;
+			s.ClearEvents([t](auto& e) {
+				return e.time < t;
+			});
+			
 			s.timeEnd = t;
 		}
 	}

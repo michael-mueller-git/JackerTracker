@@ -29,7 +29,7 @@ public:
 	cv::Scalar color;
 	std::vector<PointState> points;
 	cv::Rect rect;
-	cv::Point2f center;
+	cv::Point center;
 	float size = 0;
 	bool active = true;
 };

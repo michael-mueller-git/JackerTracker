@@ -23,7 +23,7 @@ public:
 		color = PickColor(index);
 	}
 
-	TrackingEvent* GetResult(TrackingSet& set, time_t time, EventType type);
+	TrackingEvent* GetResult(TrackingSet& set, time_t time, EventType type, bool findLast = false);
 	bool SupportsTrackingType(TRACKING_TYPE t);
 	void UpdateType();
 	void Draw(cv::Mat& frame);
@@ -38,8 +38,9 @@ public:
 	TRACKING_TYPE trackingType = TRACKING_TYPE::TYPE_NONE;
 	cv::Scalar color;
 
-	std::vector<cv::Point> intialPoints;
+	std::vector<cv::Point> initialPoints;
 	cv::Rect initialRect;
+	cv::Rect range;
 	TrackerJTType preferredTracker = TrackerJTType::TRACKER_TYPE_UNKNOWN;
 
 private:

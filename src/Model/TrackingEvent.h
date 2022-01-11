@@ -20,19 +20,19 @@ struct TrackingEvent
 	static TrackingEvent Unserialize(json& j);
 	void Serialize(json& j);
 
-	std::string targetGuid;
-	TARGET_TYPE targetType;
+	std::string targetGuid = "";
+	TARGET_TYPE targetType = TARGET_TYPE::TYPE_UNKNOWN;
 
 	EventType type;
 	time_t time;
 
 	cv:: Point2f point;
-	float size;
+	float size = 0;
 	cv::Rect rect;
 	std::vector<PointState> points;
 	TrackingStatusBase state;
 
-	float position;
-	float minPosition;
-	float maxPosition;
+	float position = 0;
+	int minDistance = 0;
+	int maxDistance = 0;
 };

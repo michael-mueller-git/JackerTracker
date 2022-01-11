@@ -41,7 +41,6 @@ public:
 	StateStack stack;
 	Project project;
 	Timebar timebar;
-	int maxFPS = 120;
 
 protected:
 	static void OnTrackbar(int v, void* p);
@@ -53,14 +52,19 @@ protected:
 
 	void RunOnce();
 
+	bool trackbarUpdating = false;
 	bool pressingButton = false;
 	bool isPlaying = false;
 
+	time_t lastFrameTime = 0;
+
+	cv::cuda::GpuMat resizeBuffer;
 	cv::cuda::GpuMat* inFrame;
 	cv::Mat outFrame;
+
 	cv::Ptr<VideoReader> videoReader;
 	std::vector<GuiButton> buttons;
 
-	char lastKey = 0;
+	int lastKey = 0;
 	float videoScale = 1;
 };

@@ -170,7 +170,7 @@ int NvDecoder::GetOperatingPoint(CUVIDOPERATINGPOINTINFO *pOPInfo)
 */
 int NvDecoder::HandleVideoSequence(CUVIDEOFORMAT *pVideoFormat)
 {
-    START_TIMER
+    //START_TIMER
     m_videoInfo.str("");
     m_videoInfo.clear();
     m_videoInfo << "Video Input Information" << std::endl
@@ -354,8 +354,8 @@ int NvDecoder::HandleVideoSequence(CUVIDEOFORMAT *pVideoFormat)
     CUDA_DRVAPI_CALL(cuCtxPushCurrent(m_cuContext));
     NVDEC_API_CALL(cuvidCreateDecoder(&m_hDecoder, &videoDecodeCreateInfo));
     CUDA_DRVAPI_CALL(cuCtxPopCurrent(NULL));
-    STOP_TIMER("Session Initialization Time: ");
-    NvDecoder::addDecoderSessionOverHead(getDecoderSessionID(), elapsedTime);
+    //STOP_TIMER("Session Initialization Time: ");
+    //NvDecoder::addDecoderSessionOverHead(getDecoderSessionID(), elapsedTime);
     return nDecodeSurface;
 }
 
@@ -631,7 +631,6 @@ NvDecoder::NvDecoder(bool bUseDeviceFrame, cudaVideoCodec eCodec, bool bLowLaten
 
     decoderSessionID = 0;
 
-    CUVIDPARSERPARAMS videoParserParameters = {};
     videoParserParameters.CodecType = eCodec;
     videoParserParameters.ulMaxNumDecodeSurfaces = 1;
     videoParserParameters.ulClockRate = clkRate;
@@ -641,6 +640,7 @@ NvDecoder::NvDecoder(bool bUseDeviceFrame, cudaVideoCodec eCodec, bool bLowLaten
     videoParserParameters.pfnDecodePicture = HandlePictureDecodeProc;
     videoParserParameters.pfnDisplayPicture = m_bForce_zero_latency ? NULL : HandlePictureDisplayProc;
     videoParserParameters.pfnGetOperatingPoint = HandleOperatingPointProc;
+
     NVDEC_API_CALL(cuvidCreateVideoParser(&m_hParser, &videoParserParameters));
 }
 
@@ -671,8 +671,28 @@ NvDecoder::~NvDecoder() {
     NvDecoder::addDecoderSessionOverHead(getDecoderSessionID(), elapsedTime);
 }
 
-#include <chrono>
-#include <thread>
+void NvDecoder::Flush()
+{
+    cuCtxPushCurrent(m_cuContext);
+
+    if (m_hParser) {
+        NVDEC_API_CALL(cuvidDestroyVideoParser(m_hParser));
+        m_hParser = nullptr;
+    }
+
+    if (m_hDecoder) {
+        NVDEC_API_CALL(cuvidDestroyDecoder(m_hDecoder));
+        m_hDecoder = nullptr;
+    }
+
+    m_nWidth = 0;
+    m_nLumaHeight = 0;
+    m_nChromaHeight = 0;
+
+    NVDEC_API_CALL(cuvidCreateVideoParser(&m_hParser, &videoParserParameters));
+
+    cuCtxPopCurrent(NULL);
+}
 
 int NvDecoder::Decode(const uint8_t *pData, int nSize, int nFlags, int64_t nTimestamp, cudaStream_t stream)
 {

@@ -9,6 +9,20 @@ using namespace std;
 using namespace chrono;
 using namespace cv;
 
+// StatePlayer
+
+StatePlayer::StatePlayer(TrackingWindow* window)
+	:StateBase(window)
+{
+
+}
+
+void StatePlayer::SetPlaying(bool p) 
+{ 
+	playing = p;
+	window->SetPlaying(p); 
+}
+
 void StatePlayer::UpdateButtons(vector<GuiButton>& out)
 {
 	StateBase::UpdateButtons(out);
@@ -41,8 +55,15 @@ void StatePlayer::Update()
 	UpdateFPS();
 	SyncFps();
 
-	window->ReadCleanFrame();
-	window->UpdateTrackbar();
+	NextFrame();
+}
+
+void StatePlayer::LastFrame()
+{
+	time_t time = window->GetCurrentPosition() - 200;
+	if (time >= 0)
+		window->SetPosition(time);
+
 	window->DrawWindow();
 }
 
@@ -73,12 +94,11 @@ void StatePlayer::AddGui(Mat& frame)
 	}
 }
 
-bool StatePlayer::HandleInput(char c)
+bool StatePlayer::HandleInput(int c)
 {
 	if (c == ' ')
 	{
-		playing = !playing;
-		window->SetPlaying(playing);
+		SetPlaying(!playing);
 		window->DrawWindow(true);
 
 		if (playing)
@@ -96,25 +116,54 @@ bool StatePlayer::HandleInput(char c)
 		return true;
 	}
 
+	// Left
+	if (c == 2424832)
+	{
+		LastFrame();
+		return true;
+	}
+	
+	// Right
+	if (c == 2555904)
+	{
+		NextFrame();
+		return true;
+	}
+
 	return false;
 }
 
-void StatePlayer::EnterState()
+void StatePlayer::EnterState(bool again)
 {
 	window->SetPlaying(playing);
 }
 
 void StatePlayer::SyncFps()
 {
-	if (window->maxFPS == 0)
+	if (window->project.maxFPS == 0)
 		return;
 
 	auto n = high_resolution_clock::now();
 
 	int deltaMs = duration_cast<chrono::milliseconds>(n - lastUpdate).count();
-	int waitMs = 1000 / window->maxFPS;
+	int waitMs = 1000 / window->project.maxFPS;
 	if (deltaMs < waitMs)
 		this_thread::sleep_for(chrono::milliseconds(waitMs - deltaMs));
 
 	lastUpdate = n;
+}
+
+// StatePlayerImpl
+
+StatePlayerImpl::StatePlayerImpl(TrackingWindow* window)
+	:StatePlayer(window)
+{
+
+}
+
+void StatePlayerImpl::NextFrame()
+{
+	window->ReadCleanFrame();
+	window->UpdateTrackbar();
+	window->DrawWindow();
 }

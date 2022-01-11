@@ -6,21 +6,25 @@
 
 #include <magic_enum.hpp>
 #include <opencv2/cudaimgproc.hpp>
+#include <opencv2/highgui.hpp>
 
 using namespace std;
 using namespace cv;
 
+// StateEditSet
+
 StateEditSet::StateEditSet(TrackingWindow* window, TrackingSet* set)
-	:StatePlayer(window), set(set)
+	:StatePlayerImpl(window), set(set)
 {
 
 }
 
-void StateEditSet::EnterState()
+void StateEditSet::EnterState(bool again)
 {
-	StatePlayer::EnterState();
+	StatePlayer::EnterState(again);
 
-	window->timebar.SelectTrackingSet(set);
+	if(!again)
+		window->timebar.SelectTrackingSet(set);
 }
 
 void StateEditSet::LeaveState()
@@ -49,9 +53,12 @@ void StateEditSet::UpdateButtons(vector<GuiButton>& out)
 	StateBase::UpdateButtons(out);
 	auto me = this;
 
-	AddButton(out, "Add tracking here", 'a');
+	AddButton(out, "Copy tracking here", 'a');
 	AddButton(out, "Delete tracking", '-');
 	AddButton(out, "Start tracking", 'l');
+	AddButton(out, "Range update", [me]() {
+		me->window->stack.PushState(new StateEditRange(me->window, me->set, me->window->GetCurrentPosition()));
+	});
 
 	auto& modeBtn = AddButton(out, "Mode: " + TrackingModeToString(set->trackingMode), [me]() {
 		me->modeOpen = !me->modeOpen;
@@ -66,10 +73,9 @@ void StateEditSet::UpdateButtons(vector<GuiButton>& out)
 
 		for (auto& t : types)
 		{
-			if (t.first == TrackingMode::TM_UNKNOWN)
-				continue;
-
 			Rect r = modeBtn.rect;
+			r.width = 120;
+
 			r.x = x;
 			x += r.width + 20;
 
@@ -159,7 +165,7 @@ void StateEditSet::UpdateButtons(vector<GuiButton>& out)
 	me->window->DrawWindow();
 }
 
-bool StateEditSet::HandleInput(char c)
+bool StateEditSet::HandleInput(int c)
 {
 	auto window = this->window;
 	auto me = this;
@@ -170,6 +176,39 @@ bool StateEditSet::HandleInput(char c)
 		TrackingSet* s = window->AddSet();
 		if (s != nullptr)
 		{
+			int i = 0;
+
+			for (auto& t : set->targets)
+			{
+				s->targets.emplace_back();
+				auto& newTarget = s->targets.back();
+
+				TrackingEvent* state = t.GetResult(*set, window->GetCurrentPosition(), EventType::TET_STATE, true);
+
+				if (state)
+				{
+					newTarget.initialRect = state->state.rect;
+
+					newTarget.initialPoints = t.initialPoints;
+					for (auto& p : state->state.points)
+						newTarget.initialPoints.push_back(p.point);
+				}
+				else
+				{
+					newTarget.initialRect = t.initialRect;
+					newTarget.initialPoints = t.initialPoints;
+				}
+
+				newTarget.preferredTracker = t.preferredTracker;
+				newTarget.range = t.range;
+				newTarget.targetType = t.targetType;
+				newTarget.trackingType = t.trackingType;
+				newTarget.UpdateColor(i);
+				i++;
+			}
+
+			s->trackingMode = set->trackingMode;
+
 			window->stack.ReplaceState(new StateEditSet(window, s));
 		}
 		return true;
@@ -221,4 +260,82 @@ bool StateEditSet::HandleInput(char c)
 		return true;
 
 	return false;
+}
+
+// StateEditRange
+
+StateEditRange::StateEditRange(TrackingWindow* window, TrackingSet* set, time_t time)
+	:StateBase(window), set(set), time(time)
+{
+
+}
+
+void StateEditRange::AddGui(cv::Mat& frame)
+{
+	calculator.Draw(*set, frame, time, false);
+}
+
+void StateEditRange::EnterState(bool again)
+{
+	window->SetPosition(time);
+	rangeEvent = set->GetResult(time, EventType::TET_POSITION_RANGE);
+	int rangeMin = 0, rangeMax = 0;
+
+	if (!rangeEvent)
+	{
+		rangeEvent = set->GetResult(time, EventType::TET_POSITION_RANGE, nullptr, true);
+
+		if (rangeEvent)
+		{
+			rangeMin = rangeEvent->minDistance;
+			rangeMax = rangeEvent->maxDistance;
+		}
+		else
+		{
+			vector<TrackingEvent*> events;
+			set->GetEvents(set->timeStart, set->timeEnd, events);
+			
+			for (auto e : events)
+			{
+				if (e->type != EventType::TET_POSITION)
+					continue;
+
+				rangeMin = min((int)e->size, rangeMin);
+				rangeMax = max((int)e->size, rangeMax);
+			}
+		}
+
+		if (rangeMin == 0 && rangeMax == 0)
+		{
+			Pop();
+			return;
+		}
+
+		rangeEvent = &set->AddEvent(EventType::TET_POSITION_RANGE, time);	
+		rangeEvent->minDistance = rangeMin;
+		rangeEvent->maxDistance = rangeMax;
+	}
+
+	namedWindow("Settings");
+	createTrackbar("Min", "Settings", &rangeEvent->minDistance, rangeEvent->maxDistance + 30, [](int v, void* p) { ((StateEditRange*)p)->Recalc(); }, this);
+	createTrackbar("Max", "Settings", &rangeEvent->maxDistance, rangeEvent->maxDistance + 30, [](int v, void* p) { ((StateEditRange*)p)->Recalc(); }, this);
+}
+
+void StateEditRange::LeaveState()
+{
+	if(getWindowProperty("Settings", WND_PROP_VISIBLE))
+		destroyWindow("Settings");
+}
+
+void StateEditRange::Update()
+{
+	if (!getWindowProperty("Settings", WND_PROP_VISIBLE))
+		Pop();
+
+}
+
+void StateEditRange::Recalc()
+{
+	calculator.Recalc(*set, time);
+	window->DrawWindow();
 }

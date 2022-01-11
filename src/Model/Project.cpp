@@ -26,8 +26,12 @@ string Project::GetConfigPath()
 	GetModuleFileNameA(NULL, binary, MAX_PATH);
 
 	filesystem::path binaryPath = binary;
+	filesystem::path projectsPath = binaryPath.parent_path();
+	if (projectsPath.filename() == "Debug" || projectsPath.filename() == "Release")
+		projectsPath = projectsPath.parent_path();
+
 	filesystem::path videoPath = video;
-	string configFile = binaryPath.parent_path().string() + "\\" + videoPath.filename().replace_extension().string() + ".json";
+	string configFile = projectsPath.string() + "\\" + videoPath.filename().replace_extension().string() + ".json";
 
 	return configFile;
 }
@@ -46,6 +50,9 @@ void Project::Load()
 
 void Project::Load(json j)
 {
+	if (j.contains("fps_max"))
+		maxFPS = j["fps_max"];
+
 	if (j["sets"].is_array() && j["sets"].size() > 0)
 	{
 		for (auto& s : j["sets"])
@@ -69,6 +76,7 @@ void Project::Save()
 
 void Project::Save(json& j)
 {
+	j["fps_max"] = maxFPS;
 	j["sets"] = json::array();
 	j["actions"] = json::array();
 
@@ -76,14 +84,17 @@ void Project::Save(json& j)
 	{
 		json& set = j["sets"][j["sets"].size()];
 		s.Serialize(set);
+
+		vector<TrackingEvent*> events;
+		s.GetEvents(s.timeStart, s.timeEnd, events);
 		
-		for (auto& e : s.events)
+		for (auto& e : events)
 		{
-			if (e.type == EventType::TET_POSITION)
+			if (e->type == EventType::TET_POSITION)
 			{
 				json& a = j["actions"][j["actions"].size()];
-				a["at"] = e.time;
-				a["pos"] = (int)(e.position * 100);
+				a["at"] = e->time;
+				a["pos"] = (int)(e->position * 100);
 			}
 		}
 	}

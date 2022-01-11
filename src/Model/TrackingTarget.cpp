@@ -19,11 +19,16 @@ TrackingTarget::TrackingTarget(string guid)
 	
 }
 
+TrackingEvent* TrackingTarget::GetResult(TrackingSet& set, time_t time, EventType type, bool findLast)
+{
+	return set.GetResult(time, type, this, findLast);
+}
+
 void TrackingTarget::Draw(Mat& frame)
 {
 	if (trackingType == TRACKING_TYPE::TYPE_POINTS || trackingType == TRACKING_TYPE::TYPE_BOTH)
 	{
-		for (auto& p : intialPoints)
+		for (auto& p : initialPoints)
 		{
 			circle(frame, p, 4, color, 3);
 		}
@@ -32,6 +37,11 @@ void TrackingTarget::Draw(Mat& frame)
 	if (trackingType == TRACKING_TYPE::TYPE_RECT || trackingType == TRACKING_TYPE::TYPE_BOTH)
 	{
 		rectangle(frame, initialRect, color, 3);
+	}
+
+	if (!range.empty())
+	{
+		rectangle(frame, range, color, 1);
 	}
 }
 
@@ -68,11 +78,11 @@ bool TrackingTarget::SupportsTrackingType(TRACKING_TYPE t)
 
 void TrackingTarget::UpdateType()
 {
-	if (!initialRect.empty() && !intialPoints.empty())
+	if (!initialRect.empty() && !initialPoints.empty())
 		trackingType = TRACKING_TYPE::TYPE_BOTH;
 	else if (!initialRect.empty())
 		trackingType = TRACKING_TYPE::TYPE_RECT;
-	else if (!intialPoints.empty())
+	else if (!initialPoints.empty())
 		trackingType = TRACKING_TYPE::TYPE_POINTS;
 }
 
@@ -99,15 +109,25 @@ TrackingTarget TrackingTarget::Unserialize(json& t)
 	if (target.SupportsTrackingType(TRACKING_TYPE::TYPE_POINTS))
 	{
 		for (auto& p : t["points"])
-			target.intialPoints.push_back(Point2f(p["x"], p["y"]));
+			target.initialPoints.push_back(Point2f(p["x"], p["y"]));
 	}
 	if (target.SupportsTrackingType(TRACKING_TYPE::TYPE_RECT))
 	{
 		target.initialRect = Rect(
-			(float)t["rect"]["x"],
-			(float)t["rect"]["y"],
-			(float)t["rect"]["width"],
-			(float)t["rect"]["height"]
+			t["rect"]["x"],
+			t["rect"]["y"],
+			t["rect"]["width"],
+			t["rect"]["height"]
+		);
+	}
+
+	if (t.contains("range"))
+	{
+		target.range = Rect(
+			t["range"]["x"],
+			t["range"]["y"],
+			t["range"]["width"],
+			t["range"]["height"]
 		);
 	}
 
@@ -126,7 +146,7 @@ void TrackingTarget::Serialize(json& target)
 	{
 		target["points"] = json::array();
 
-		for (auto& p : intialPoints)
+		for (auto& p : initialPoints)
 		{
 			json& point = target["points"][target["points"].size()];
 			point["x"] = p.x;
@@ -140,5 +160,13 @@ void TrackingTarget::Serialize(json& target)
 		target["rect"]["y"] = initialRect.y;
 		target["rect"]["width"] = initialRect.width;
 		target["rect"]["height"] = initialRect.height;
+	}
+
+	if (!range.empty())
+	{
+		target["range"]["x"] = range.x;
+		target["range"]["y"] = range.y;
+		target["range"]["width"] = range.width;
+		target["range"]["height"] = range.height;
 	}
 }
