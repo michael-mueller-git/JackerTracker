@@ -17,7 +17,11 @@ option (ARCH_LINUX "Build on Arch Linux" OFF)
 
 if (ARCH_LINUX)
     include_directories(/opt/cuda/targets/x86_64-linux/include /usr/include/nvidia-sdk/ /usr/include/opencv4/opencv2)
+    execute_process (COMMAND bash -c "cat ../lib/goturn/goturn.caffemodel.zip* > goturn.caffemodel.zip")
+    execute_process (COMMAND bash -c "unzip goturn.caffemodel.zip")
 endif()
+
+configure_file(lib/goturn/goturn.prototxt goturn.prototxt COPYONLY)
 
 #Guid start
 	add_library(
