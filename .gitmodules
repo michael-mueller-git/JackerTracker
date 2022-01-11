@@ -10,3 +10,6 @@
 [submodule "lib/magic_enum"]
 	path = lib/magic_enum
 	url = https://github.com/Neargye/magic_enum.git
+[submodule "lib/ossp-uuid"]
+	path = lib/ossp-uuid
+	url = https://github.com/sean-/ossp-uuid.git
