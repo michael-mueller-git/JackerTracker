@@ -19,6 +19,11 @@ StateEditTracker::StateEditTracker(TrackingWindow* window, TrackingSet* set, Tra
 
 }
 
+void StateEditTracker::EnterState(bool again)
+{
+	window->SetPosition(set->timeStart);
+}
+
 void StateEditTracker::UpdateButtons(vector<GuiButton>& out)
 {
 	auto me = this;
@@ -28,6 +33,8 @@ void StateEditTracker::UpdateButtons(vector<GuiButton>& out)
 		});
 
 	AddButton(out, "Set rect", 'r');
+	AddButton(out, "Set range", 't');
+
 	auto t = GetTracker(target->preferredTracker);
 
 	auto& trackerBtn = AddButton(out, "Tracker: " + t.name, [me]() {
@@ -128,8 +135,8 @@ void StateEditTracker::RemovePoints(Rect r)
 	vector<Point> newPoints;
 
 	copy_if(
-		target->intialPoints.begin(),
-		target->intialPoints.end(),
+		target->initialPoints.begin(),
+		target->initialPoints.end(),
 		back_inserter(newPoints),
 		[r](Point p)
 		{
@@ -141,7 +148,7 @@ void StateEditTracker::RemovePoints(Rect r)
 		}
 	);
 
-	target->intialPoints = newPoints;
+	target->initialPoints = newPoints;
 	target->UpdateType();
 
 	window->DrawWindow();
@@ -159,7 +166,7 @@ void StateEditTracker::AddPoints(Rect r)
 	Ptr<cuda::CornersDetector> detector = cuda::createGoodFeaturesToTrackDetector(
 		gpuFrameGray.type(),
 		30,
-		0.01,
+		0.005,
 		30
 	);
 
@@ -174,7 +181,7 @@ void StateEditTracker::AddPoints(Rect r)
 		gpuPoints.download(addPoints);
 
 		for (auto& a : addPoints)
-			target->intialPoints.push_back(a);
+			target->initialPoints.push_back(a);
 
 		target->UpdateType();
 
@@ -183,7 +190,7 @@ void StateEditTracker::AddPoints(Rect r)
 
 }
 
-bool StateEditTracker::HandleInput(char c)
+bool StateEditTracker::HandleInput(int c)
 {
 	auto window = this->window;
 	auto me = this;
@@ -202,6 +209,23 @@ bool StateEditTracker::HandleInput(char c)
 			{
 				me->target->initialRect = Rect2f(0, 0, 0, 0);
 				me->target->UpdateType();
+			}
+			));
+
+		return true;
+	}
+	else if (c == 't')
+	{
+		window->stack.PushState(new StateSelectRoi(window, "Select the tracking range (cancel to remove)",
+			[me](Rect& rect)
+			{
+				me->target->range = rect;
+
+			},
+			// Failed
+				[me]()
+			{
+				me->target->range = Rect(0, 0, 0, 0);
 			}
 			));
 
@@ -235,7 +259,7 @@ bool StateEditTracker::HandleMouse(int e, int x, int y, int f)
 		}
 		else
 		{
-			target->intialPoints.emplace_back(Point2f(x, y));
+			target->initialPoints.emplace_back(Point2f(x, y));
 		}
 
 		draggingRect = false;

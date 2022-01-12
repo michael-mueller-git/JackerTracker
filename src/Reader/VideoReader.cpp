@@ -40,7 +40,7 @@ VideoReaderImp::VideoReaderImp(std::string fileName)
     Rect cropRect = {};
     Dim resizeDim = {};
 
-    dec = new NvDecoder(true, FFmpeg2NvCodecId(demuxer.GetVideoCodec()), false);
+    dec = new NvDecoder(true, FFmpeg2NvCodecId(demuxer.GetVideoCodec()));
     dec->SetOperatingPoint(0, false);
 }
 
@@ -56,7 +56,7 @@ cv::cuda::GpuMat* VideoReaderImp::NextFrame(cv::cuda::Stream& stream)
         return ptr;
 
     int nVideoBytes = 0, nFrameReturned = 0;
-    int64_t pts;
+    int64_t pts = 0;
 
     uint8_t* pVideo = NULL;
     int tries = 0;
@@ -66,6 +66,7 @@ cv::cuda::GpuMat* VideoReaderImp::NextFrame(cv::cuda::Stream& stream)
     {
         demuxer.Demux(&pVideo, &nVideoBytes, &pts);
         nFrameReturned = dec->Decode(pVideo, nVideoBytes, 0, 0, cv::cuda::StreamAccessor::getStream(stream));
+
         if (nFrameReturned)
         {
             if (nFrameReturned > 1)
@@ -73,7 +74,7 @@ cv::cuda::GpuMat* VideoReaderImp::NextFrame(cv::cuda::Stream& stream)
 
             if (pts && lastPts && pts < lastPts)
             {
-                continue;
+                //continue;
             }
 
             break;
@@ -82,7 +83,7 @@ cv::cuda::GpuMat* VideoReaderImp::NextFrame(cv::cuda::Stream& stream)
         tries++;
     }
 
-    if (pts)
+    if (pts > lastPts)
         lastPts = pts;
 
     return dec->GetFrame();
@@ -94,8 +95,10 @@ bool VideoReaderImp::Seek(unsigned long time)
     while (dec->GetFrame())
         ;
 
-    lastPts = 0;
-    return demuxer.Seek(time);
+    dec->Flush();
+
+    lastPts = time;
+    return demuxer.Seek(time, time < lastPts);
 }
 
 unsigned long VideoReaderImp::GetPosition()

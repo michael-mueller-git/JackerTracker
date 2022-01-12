@@ -53,7 +53,7 @@ void Timebar::UpdateButtons(vector<GuiButton>& out)
 			if (!s)
 				return false;
 
-			if (s->GetName() == "Paused")
+			if (s->GetName() == "Playing")
 			{
 				me->window->stack.PushState(new StateEditSet(me->window, setptr));
 			}

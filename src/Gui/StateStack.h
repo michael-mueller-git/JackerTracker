@@ -11,7 +11,6 @@ public:
 	{
 	};
 
-	void ReloadTop();
 	void PushState(StateBase* s);
 	void ReplaceState(StateBase* s);
 	void PopState();

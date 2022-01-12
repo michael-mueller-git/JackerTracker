@@ -31,10 +31,10 @@ public:
 
 	StateTracking(TrackingWindow* window, TrackingSet* set);
 
-	void EnterState();
+	void EnterState(bool again);
 	void LeaveState();
 	void UpdateButtons(std::vector<GuiButton>& out);
-	bool HandleInput(char c);
+	bool HandleInput(int c);
 	bool RemovePoints(cv::Rect r);
 	void Update();
 
@@ -42,6 +42,9 @@ public:
 	std::string GetName() const { return "Tracking"; }
 
 protected:
+	void NextFrame() override;
+	void LastFrame() override;
+
 	TrackingSet* set;
 	std::vector<trackerBinding> trackerBindings;
 };
@@ -53,8 +56,12 @@ public:
 	std::string GetName() const { return "TestTrackers"; }
 
 	void UpdateButtons(std::vector<GuiButton>& out);
-	void EnterState();
+	
+	void AddGui(cv::Mat& frame);
+	void EnterState(bool again);
 
 protected:
+	void NextFrame() override;
+	
 	TrackingTarget* target;
 };

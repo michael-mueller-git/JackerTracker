@@ -12,10 +12,12 @@ class StateEditTracker : public StateBase
 public:
 	StateEditTracker(TrackingWindow* window, TrackingSet* set, TrackingTarget* target);
 
+	void EnterState(bool again);
+
 	void AddPoints(cv::Rect r);
 	void RemovePoints(cv::Rect r);
 
-	bool HandleInput(char c);
+	bool HandleInput(int c);
 	bool HandleMouse(int e, int x, int y, int f);
 
 	void UpdateButtons(std::vector<GuiButton>& out);

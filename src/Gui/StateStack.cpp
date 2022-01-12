@@ -60,18 +60,9 @@ void StateStack::PopState()
 	if (stack.size() > 0)
 	{
 		s = stack.back();
-		s->EnterState();
-		window.DrawWindow(true);
+		s->EnterState(true);
+		
 	}
-}
 
-void StateStack::ReloadTop()
-{
-	auto s = GetState();
-	if (!s)
-		return;
-
-	s->LeaveState();
-	s->EnterState();
 	window.DrawWindow(true);
 }

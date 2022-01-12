@@ -9,7 +9,7 @@ public:
 	StateConfirm(TrackingWindow* window, std::string title, ConfirmCallback callback, StateFailedCallback failedCallback);
 
 	void UpdateButtons(std::vector<GuiButton>& out);
-	bool HandleInput(char c);
+	bool HandleInput(int c);
 	void AddGui(cv::Mat& frame);
 	void LeaveState();
 

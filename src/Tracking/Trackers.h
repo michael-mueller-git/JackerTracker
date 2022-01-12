@@ -80,6 +80,7 @@ protected:
     TrackingStatus& state;
     const char* name;
     FrameVariant frameType = FrameVariant::VARIANT_UNKNOWN;
+    cv::Rect window;
 };
 
 class GpuTrackerGOTURN : public TrackerJT

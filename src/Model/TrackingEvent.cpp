@@ -36,11 +36,11 @@ TrackingEvent TrackingEvent::Unserialize(json& j)
 	if(j.contains("position"))
 		e.position = j["position"];
 
-	if(j.contains("min_position"))
-		e.minPosition = j["min_position"];
+	if(j.contains("min_distance"))
+		e.minDistance = j["min_distance"];
 
-	if(j.contains("max_position"))
-		e.maxPosition = j["max_position"];
+	if(j.contains("max_distance"))
+		e.maxDistance = j["max_distance"];
 
 	if(j.contains("target"))
 		e.targetGuid = j["target"];
@@ -56,8 +56,8 @@ void TrackingEvent::Serialize(json& j)
 	j["point"]["y"] = point.y;
 	j["size"] = size;
 	j["position"] = position;
-	j["min_position"] = minPosition;
-	j["max_position"] = maxPosition;
+	j["min_distance"] = minDistance;
+	j["max_distance"] = maxDistance;
 	j["target"] = targetGuid;
 
 	j["rect"]["x"] = rect.x;
@@ -73,17 +73,4 @@ void TrackingEvent::Serialize(json& j)
 		pj["y"] = p.point.y;
 		pj["active"] = p.active;
 	}
-}
-
-TrackingEvent* TrackingTarget::GetResult(TrackingSet& set, time_t time, EventType type)
-{
-	for (auto& e : set.events)
-	{
-		if (e.targetGuid != guid || e.time != time)
-			continue;
-
-		return &e;
-	}
-
-	return nullptr;
 }

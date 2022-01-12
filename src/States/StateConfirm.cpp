@@ -30,7 +30,7 @@ void StateConfirm::LeaveState()
 		failedCallback();
 }
 
-bool StateConfirm::HandleInput(char c)
+bool StateConfirm::HandleInput(int c)
 {
 	if (c == 'y')
 	{

@@ -8,20 +8,23 @@
 class StatePlayer : public StateBase
 {
 public:
-	using StateBase::StateBase;
-
+	StatePlayer(TrackingWindow* window);
 	virtual void Update();
-	void EnterState();
+
+	void EnterState(bool again);
 	void UpdateButtons(std::vector<GuiButton>& out);
 
-	void UpdateFPS();
-	virtual bool HandleInput(char c);
+	
+	virtual bool HandleInput(int c);
 	virtual void AddGui(cv::Mat& frame);
-	void SyncFps();
-
-	virtual std::string GetName() const { return "Playing"; }
-
+	
 protected:
+	virtual void NextFrame() = 0;
+	virtual void LastFrame();
+	void UpdateFPS();
+	void SyncFps();
+	void SetPlaying(bool p);
+
 	bool playing = false;
 	std::chrono::steady_clock::time_point timer;
 	unsigned int timerFrames;
@@ -29,4 +32,12 @@ protected:
 	std::chrono::time_point<std::chrono::steady_clock> lastUpdate;
 	TrackingSet* lastSet = nullptr;
 	TrackingCalculator calculator;
+};
+
+class StatePlayerImpl : public StatePlayer
+{
+public:
+	StatePlayerImpl(TrackingWindow* window);
+	virtual std::string GetName() const { return "Playing"; }
+	virtual void NextFrame();
 };

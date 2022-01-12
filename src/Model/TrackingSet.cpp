@@ -59,21 +59,74 @@ void TrackingSet::Serialize(json& set)
 	}
 }
 
-TrackingEvent* TrackingSet::GetResult(time_t time, EventType type)
+TrackingEvent* TrackingSet::GetResult(time_t time, EventType type, TrackingTarget* target, bool findLast)
 {
-	for (auto& r : events)
+	if (findLast)
 	{
-		if (!r.targetGuid.empty())
-			continue;
+		for (vector<TrackingEvent>::reverse_iterator e = events.rbegin(); e != events.rend(); ++e) {
+			if (target && e->targetGuid != target->GetGuid())
+				continue;
 
-		if (r.time > time)
-			return nullptr;
+			if (e->type != type)
+				continue;
 
-		if (r.time == time && r.type == type)
-			return &r;
+			if (e->time <= time)
+				return &(*e);
+		}
 	}
+	else
+	{
+		for (auto& e : events)
+		{
+			if (e.time > time)
+				return nullptr;
 
+			if (target && e.targetGuid != target->GetGuid())
+				continue;
+
+			if (e.type != type)
+				continue;
+
+			if (e.time == time)
+				return &e;
+		}
+	}
+	
 	return nullptr;
+}
+
+TrackingEvent& TrackingSet::AddEvent(EventType type, time_t t, TrackingTarget* target)
+{
+	auto it = find_if(events.begin(), events.end(), [t](TrackingEvent& e) { return t <= e.time; });
+	it = events.emplace(it, type, t);
+
+	TrackingEvent& event = *it;
+	if (target)
+		event.targetGuid = target->GetGuid();
+
+	return event;
+}
+
+void TrackingSet::GetEvents(time_t from, time_t to, vector<TrackingEvent*>& out)
+{
+	for (auto& e : events)
+	{
+		if (e.time >= from && e.time <= to)
+			out.push_back(&e);
+	}
+}
+
+void TrackingSet::ClearEvents(function<bool(TrackingEvent& e)> callback)
+{
+	vector<TrackingEvent> eventsFiltered;
+	copy_if(
+		events.begin(),
+		events.end(),
+		back_inserter(eventsFiltered),
+		callback
+	);
+
+	events = eventsFiltered;
 }
 
 void TrackingSet::Draw(Mat& frame)

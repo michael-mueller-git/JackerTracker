@@ -16,7 +16,7 @@ TrackingStatus* TrackingTarget::InitTracking(TRACKING_TYPE t)
 
 	if (SupportsTrackingType(TRACKING_TYPE::TYPE_POINTS))
 	{
-		for (auto& p : intialPoints)
+		for (auto& p : initialPoints)
 		{
 			PointState ps;
 			ps.active = true;
@@ -64,23 +64,17 @@ void TrackingStatusBase::Draw(Mat& frame)
 
 void TrackingStatus::SnapResult(TrackingSet& set, time_t time)
 {
-	TrackingEvent e(EventType::TET_POINT, time);
+
+	TrackingEvent& e = set.AddEvent(EventType::TET_POINT, time, &parent);
 	e.point = center;
-	e.targetGuid = parent.GetGuid();
-	set.events.push_back(e);
 
 	if (size != 0)
 	{
-		TrackingEvent e(EventType::TET_SIZE, time);
+		TrackingEvent& e2 = set.AddEvent(EventType::TET_SIZE, time, &parent);
 		e.size = size;
-		e.targetGuid = parent.GetGuid();
-		set.events.push_back(e);
 	}
 
-	TrackingEvent e2(EventType::TET_STATE, time);
+	TrackingEvent& e3 = set.AddEvent(EventType::TET_STATE, time, &parent);
 	TrackingStatusBase& state = *reinterpret_cast<TrackingStatusBase*>(this);
-
-	e2.state = state;
-	e2.targetGuid = parent.GetGuid();
-	set.events.push_back(e2);
+	e3.state = state;
 }
