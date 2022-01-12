@@ -18,3 +18,11 @@ mkdir build && cd build
 cmake -DARCH_LINUX=ON ..
 make -j 24
 ```
+
+Now download the following Models to your build directory:
+
+```
+https://www.dropbox.com/s/rr1lk9355vzolqv/dasiamrpn_model.onnx?dl=0
+https://www.dropbox.com/s/qvmtszx5h339a0w/dasiamrpn_kernel_cls1.onnx?dl=0
+https://www.dropbox.com/s/999cqx5zrfi7w4p/dasiamrpn_kernel_r1.onnx?dl=0
+```
