@@ -12,18 +12,18 @@ public:
 	virtual void Update();
 
 	void EnterState(bool again);
-	void UpdateButtons(std::vector<GuiButton>& out);
+	void UpdateButtons(ButtonListOut out);
 
 	
-	virtual bool HandleInput(int c);
-	virtual void AddGui(cv::Mat& frame);
+	virtual bool HandleStateInput(OIS::KeyCode c);
+	virtual void Draw(cv::Mat& frame);
 	
 protected:
 	virtual void NextFrame() = 0;
 	virtual void LastFrame();
 	void UpdateFPS();
 	void SyncFps();
-	void SetPlaying(bool p);
+	virtual void SetPlaying(bool p);
 
 	bool playing = false;
 	std::chrono::steady_clock::time_point timer;
@@ -38,6 +38,6 @@ class StatePlayerImpl : public StatePlayer
 {
 public:
 	StatePlayerImpl(TrackingWindow* window);
-	virtual std::string GetName() const { return "Playing"; }
+	virtual std::string GetName() { return "Playing"; }
 	virtual void NextFrame();
 };

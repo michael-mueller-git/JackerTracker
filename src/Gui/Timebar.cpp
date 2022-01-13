@@ -1,5 +1,5 @@
 #include "Timebar.h"
-#include "States/StateEditSet.h"
+#include "States/Set/StateEditSet.h"
 #include "TrackingWindow.h"
 
 #include <opencv2/imgproc.hpp>
@@ -7,13 +7,15 @@
 using namespace std;
 using namespace cv;
 
+// Timebar
+
 Timebar::Timebar(TrackingWindow* window)
 	:StateBase(window)
 {
 
 }
 
-void Timebar::UpdateButtons(vector<GuiButton>& out)
+void Timebar::UpdateButtons(ButtonListOut out)
 {
 	auto me = this;
 
@@ -26,52 +28,11 @@ void Timebar::UpdateButtons(vector<GuiButton>& out)
 
 	for (auto& s : window->project.sets)
 	{
-		int x = mapValue<time_t, int>(
-			s.timeStart,
-			0,
-			window->GetDuration(),
-			barRect.x,
-			barRect.x + barRect.width
-			);
-
-		Rect setRect(
-			x - 5,
-			barRect.y - 2,
-			10,
-			barRect.height + 4
-		);
-
-		TrackingSet* setptr = &s;
-
-		GuiButton b;
-		b.text = to_string(s.targets.size());
-		b.textScale = 0.4;
-		b.rect = setRect;
-		b.customHover = true;
-		b.onClick = [me, setptr]() {
-			auto s = me->window->stack.GetState();
-			if (!s)
-				return false;
-
-			if (s->GetName() == "Playing")
-			{
-				me->window->stack.PushState(new StateEditSet(me->window, setptr));
-			}
-			else if (s->GetName() == "EditSet")
-			{
-				me->window->stack.ReplaceState(new StateEditSet(me->window, setptr));
-			}
-
-		};
-
-		if (selectedSet == &s)
-			b.hover = true;
-
-		out.push_back(b);
+		out.emplace_back(new TimebarButton(me->window, &s, barRect));
 	}
 }
 
-void Timebar::AddGui(Mat& frame)
+void Timebar::Draw(Mat& frame)
 {
 	int w = frame.cols;
 
@@ -201,4 +162,49 @@ TrackingSet* Timebar::GetPreviousSet()
 
 		return &(*it);
 	}
+}
+
+// TimebarButton
+
+TimebarButton::TimebarButton(TrackingWindow* w, TrackingSet* s, Rect bar)
+	:w(w), set(s)
+{
+	int x = mapValue<time_t, int>(
+		s->timeStart,
+		0,
+		w->GetDuration(),
+		bar.x,
+		bar.x + bar.width
+	);
+
+	rect = Rect(
+		x - 5,
+		bar.y - 2,
+		10,
+		bar.height + 4
+	);
+
+	text = to_string(s->targets.size());
+	textScale = 0.3;
+}
+
+void TimebarButton::Handle()
+{
+	auto s = w->stack.GetState();
+	if (!s)
+		return;
+
+	if (s->GetName() == "Playing")
+	{
+		w->PushState(new StateEditSet(w, set));
+	}
+	else if (s->GetName() == "EditSet")
+	{
+		w->stack.ReplaceState(new StateEditSet(w, set));
+	}
+}
+
+bool TimebarButton::Highlighted()
+{
+	return w->timebar.GetSelectedSet() == set;
 }

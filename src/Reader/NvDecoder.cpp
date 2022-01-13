@@ -492,14 +492,7 @@ int NvDecoder::setReconfigParams(const Rect *pCropRect, const Dim *pResizeDim)
         }
     }
 
-    // Clear existing output buffers of different size
-    cv::cuda::GpuMat *pFrame = NULL;
-    while (!m_vpFrame.empty())
-    {
-        pFrame = m_vpFrame.back();
-        m_vpFrame.pop_back();
-        delete pFrame;
-    }
+    frameQueue.clear();
 
     return 1;
 }
@@ -554,60 +547,13 @@ int NvDecoder::HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo) {
         printf("Decode Error occurred for picture %d\n", m_nPicNumInDecodeOrder[pDispInfo->picture_index]);
     }
     
-    cv::cuda::GpuMat* pDecodedFrame = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(m_mtxVPFrame);
-        if ((unsigned)++m_nDecodedFrame > m_vpFrame.size())
-        {
-            // Not enough frames in stock
-            m_nFrameAlloc++;
-            cv::cuda::GpuMat *pFrame = new cv::cuda::GpuMat();
-            pFrame->create(m_nSurfaceHeight, m_nSurfaceWidth, CV_8UC4);
-
-            m_vpFrame.push_back(pFrame);
-        }
-        pDecodedFrame = m_vpFrame[m_nDecodedFrame - 1];
-    }
-
-    videoDecPostProcessFrame(dpSrcFrame, nSrcPitch, (CUdeviceptr)pDecodedFrame->ptr<uint>(), pDecodedFrame->step, m_nSurfaceWidth, m_nSurfaceHeight, m_cuvidStream);
-
-    /*
-
-    // Copy luma plane
-    CUDA_MEMCPY2D m = { 0 };
-    m.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-    m.srcDevice = dpSrcFrame;
-    m.srcPitch = nSrcPitch;
-    m.dstMemoryType = CU_MEMORYTYPE_DEVICE;
-    m.dstDevice = (CUdeviceptr)(m.dstHost = pDecodedFrame);
-    m.dstPitch = m_nDeviceFramePitch ? m_nDeviceFramePitch : GetWidth() * m_nBPP;
-    m.WidthInBytes = GetWidth() * m_nBPP;
-    m.Height = m_nLumaHeight;
-    CUDA_DRVAPI_CALL(cuMemcpy2DAsync(&m, m_cuvidStream));
-
-    // Copy chroma plane
-    // NVDEC output has luma height aligned by 2. Adjust chroma offset by aligning height
-    m.srcDevice = (CUdeviceptr)((uint8_t *)dpSrcFrame + m.srcPitch * ((m_nSurfaceHeight + 1) & ~1));
-    m.dstDevice = (CUdeviceptr)(m.dstHost = pDecodedFrame + m.dstPitch * m_nLumaHeight);
-    m.Height = m_nChromaHeight;
-    CUDA_DRVAPI_CALL(cuMemcpy2DAsync(&m, m_cuvidStream));
-
-    if (m_nNumChromaPlanes == 2)
-    {
-        m.srcDevice = (CUdeviceptr)((uint8_t *)dpSrcFrame + m.srcPitch * ((m_nSurfaceHeight + 1) & ~1) * 2);
-        m.dstDevice = (CUdeviceptr)(m.dstHost = pDecodedFrame + m.dstPitch * m_nLumaHeight * 2);
-        m.Height = m_nChromaHeight;
-        CUDA_DRVAPI_CALL(cuMemcpy2DAsync(&m, m_cuvidStream));
-    }
-    CUDA_DRVAPI_CALL(cuStreamSynchronize(m_cuvidStream));
-    CUDA_DRVAPI_CALL(cuCtxPopCurrent(NULL));
-    */
-
-    if ((int)m_vTimestamp.size() < m_nDecodedFrame) {
-        m_vTimestamp.resize(m_vpFrame.size());
-    }
-    m_vTimestamp[m_nDecodedFrame - 1] = pDispInfo->timestamp;
+    cv::cuda::GpuMat pDecodedFrame(m_nSurfaceHeight, m_nSurfaceWidth, CV_8UC4);
+    videoDecPostProcessFrame(dpSrcFrame, nSrcPitch, (CUdeviceptr)pDecodedFrame.ptr<uint>(), pDecodedFrame.step, m_nSurfaceWidth, m_nSurfaceHeight, m_cuvidStream);
     
+    {
+        std::lock_guard<std::mutex> lock(frameMtx);
+        frameQueue.push_front({ pDecodedFrame, pDispInfo->timestamp });
+    }
 
     NVDEC_API_CALL(cuvidUnmapVideoFrame(m_hDecoder, dpSrcFrame));
 
@@ -656,12 +602,6 @@ NvDecoder::~NvDecoder() {
         cuvidDestroyDecoder(m_hDecoder);
     }
 
-    std::lock_guard<std::mutex> lock(m_mtxVPFrame);
-
-    for (auto pFrame : m_vpFrame)
-    {
-        delete pFrame;
-    }
     cuCtxPopCurrent(NULL);
 
     cuvidCtxLockDestroy(m_ctxLock);
@@ -673,6 +613,8 @@ NvDecoder::~NvDecoder() {
 
 void NvDecoder::Flush()
 {
+    frameQueue.clear();
+
     cuCtxPushCurrent(m_cuContext);
 
     if (m_hParser) {
@@ -697,9 +639,7 @@ void NvDecoder::Flush()
 int NvDecoder::Decode(const uint8_t *pData, int nSize, int nFlags, int64_t nTimestamp, cudaStream_t stream)
 {
     m_cuvidStream = stream;
-
-    m_nDecodedFrame = 0;
-    m_nDecodedFrameReturned = 0;
+    
     CUVIDSOURCEDATAPACKET packet = { 0 };
     packet.payload = pData;
     packet.payload_size = nSize;
@@ -712,51 +652,25 @@ int NvDecoder::Decode(const uint8_t *pData, int nSize, int nFlags, int64_t nTime
 
     m_cuvidStream = 0;
 
-    return m_nDecodedFrame;
+    return frameQueue.size();
 }
 
-cv::cuda::GpuMat* NvDecoder::GetFrame(int64_t* pTimestamp)
+int NvDecoder::NumFrames()
 {
-    if (m_nDecodedFrame > 0)
-    {
-        std::lock_guard<std::mutex> lock(m_mtxVPFrame);
-        m_nDecodedFrame--;
-        if (pTimestamp)
-            *pTimestamp = m_vTimestamp[m_nDecodedFrameReturned];
-        return m_vpFrame[m_nDecodedFrameReturned++];
-    }
-
-    return NULL;
+    return frameQueue.size();
 }
 
-cv::cuda::GpuMat* NvDecoder::GetLockedFrame(int64_t* pTimestamp)
+cv::cuda::GpuMat NvDecoder::GetFrame(int64_t* pTimestamp)
 {
-    cv::cuda::GpuMat* pFrame;
-    uint64_t timestamp;
-    if (m_nDecodedFrame > 0) {
-        std::lock_guard<std::mutex> lock(m_mtxVPFrame);
-        m_nDecodedFrame--;
-        pFrame = m_vpFrame[0];
-        m_vpFrame.erase(m_vpFrame.begin(), m_vpFrame.begin() + 1);
-        
-        timestamp = m_vTimestamp[0];
-        m_vTimestamp.erase(m_vTimestamp.begin(), m_vTimestamp.begin() + 1);
-        
-        if (pTimestamp)
-            *pTimestamp = timestamp;
-        
-        return pFrame;
-    }
+    assert(!frameQueue.empty());
 
-    return NULL;
-}
+    std::lock_guard<std::mutex> lock(frameMtx);
 
-void NvDecoder::UnlockFrame(cv::cuda::GpuMat **pFrame)
-{
-    std::lock_guard<std::mutex> lock(m_mtxVPFrame);
-    m_vpFrame.insert(m_vpFrame.end(), &pFrame[0], &pFrame[1]);
+    gpuFrameStruct f = frameQueue.back();
+    frameQueue.pop_back();
     
-    // add a dummy entry for timestamp
-    uint64_t timestamp[2] = {0};
-    m_vTimestamp.insert(m_vTimestamp.end(), &timestamp[0], &timestamp[1]);
+    if(pTimestamp)
+        *pTimestamp = f.timeStamp;
+
+    return f.frame;
 }

@@ -29,9 +29,9 @@ public:
 	}
 
 	bool HandleMouse(int e, int x, int y, int f);
-	void AddGui(cv::Mat& frame);
+	void Draw(cv::Mat& frame);
 
-	std::string GetName() const { return "SelectRoi"; }
+	std::string GetName() { return "SelectRoi"; }
 
 protected:
 	std::string title;

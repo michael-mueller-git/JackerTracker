@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Model/Model.h"
 #include "Model/TrackingSet.h"
 #include "Model/TrackingTarget.h"
+#include "Gui/GuiElement.h"
 #include "Gui/GuiButton.h"
 
 #include <functional>
@@ -9,10 +11,9 @@
 #include <string>
 #include <opencv2/core.hpp>
 
-class TrackingWindow;
 typedef std::function<void()> StateFailedCallback;
 
-class StateBase {
+class StateBase : public GuiElement {
 public:
 	StateBase(TrackingWindow* window)
 		:window(window)
@@ -23,60 +24,51 @@ public:
 	virtual void EnterState(bool again = false) {};
 	virtual void LeaveState() {};
 
-	virtual void UpdateButtons(std::vector<GuiButton>& out)
+	virtual void UpdateButtons(ButtonListOut out)
 	{
 		auto me = this;
 
-		AddButton(out, "Cancel (q)", [me]() {
+		AddButton(out, "Cancel", [me](auto w) {
 			me->Pop();
-		});
+		}, OIS::KC_Q);
 	};
-	virtual void AddGui(cv::Mat& frame) { ; }
+
+	bool HandleInput(OIS::KeyCode c) {
+		if (c == OIS::KC_Q)
+		{
+			Pop();
+			return true;
+		}
+		else
+		{
+			return HandleStateInput(c);
+		}
+	};
+
+	virtual void Draw(cv::Mat& frame) { ; };
 	virtual void Update() {};
-	virtual bool HandleInput(int c) { return false; };
+	virtual bool HandleStateInput(OIS::KeyCode c) { return false; };
 	virtual bool HandleMouse(int e, int x, int y, int f) { return false; };
-	virtual std::string GetName() const = 0;
+	virtual std::string GetName() = 0;
 
 	virtual bool ShouldPop() { return popMe; };
-	void Pop() { popMe = true; };
-	GuiButton& AddButton(std::vector<GuiButton>& out, std::string text, std::function<void()> onClick, cv::Rect r)
-	{
-		GuiButton b;
-		b.text = text;
-		b.onClick = onClick;
-		b.rect = r;
-
-		out.push_back(b);
-
-		return out.back();
-	}
-	GuiButton& AddButton(std::vector<GuiButton>& out, std::string text, std::function<void()> onClick)
-	{
-		int x = 40;
-		int y = 220;
-
-		for (auto& b : out)
-			if (b.rect.x == x)
-				y += (40 + 20);
-
-		return AddButton(out, text, onClick, cv::Rect(
-			x,
-			y,
-			230,
-			40
-		));
-	}
-
-	GuiButton& AddButton(std::vector<GuiButton>& out, std::string text, char c)
-	{
-		auto me = this;
-
-		return AddButton(out, text + " (" + c + ")", [me, c]() {
-			me->HandleInput(c);
-		});
-	}
-
 protected:
+
+	void Pop() { popMe = true; };
+
+	GuiButton& AddButton(ButtonListOut out, std::string text, std::function<void(TrackingWindow* window)> handler, cv::Rect r, OIS::KeyCode hotKey);
+	GuiButton& AddButton(ButtonListOut out, std::string text, std::function<void(TrackingWindow* window)> handler, cv::Rect r);
+
+	GuiButton& AddButton(ButtonListOut out, std::string text, std::function<void(TrackingWindow* window)> handler)
+	{
+		return AddButton(out, text, handler, GuiButton::Next(out));
+	}
+
+	GuiButton& AddButton(ButtonListOut out, std::string text, std::function<void(TrackingWindow* window)> handler, OIS::KeyCode hotKey)
+	{
+		return AddButton(out, text, handler, GuiButton::Next(out), hotKey);
+	}
+
 	TrackingWindow* window;
 	bool popMe = false;
 };
@@ -90,12 +82,7 @@ public:
 
 	}
 
-	void UpdateButtons(std::vector<GuiButton>& out)
-	{
-		AddButton(out, "Save", 's');
-	}
+	void UpdateButtons(ButtonListOut out);
 
-	bool HandleInput(int c) override;
-
-	std::string GetName() const { return "Global"; }
+	std::string GetName() { return "Global"; }
 };

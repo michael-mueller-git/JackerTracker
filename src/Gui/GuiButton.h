@@ -1,33 +1,46 @@
 #pragma once
 
+#include "Model/Model.h"
+#include "GuiElement.h"
+
 #include <opencv2/core.hpp>
 #include <string>
 #include <functional>
+#include <memory>
 
-class GuiButton
+class GuiButton;
+
+typedef std::vector<std::unique_ptr<GuiButton>> ButtonList;
+typedef ButtonList& ButtonListOut;
+
+class GuiButton : public GuiElement
 {
 public:
-	GuiButton()
-		:textColor(0, 0, 0)
-	{
+	GuiButton(cv::Rect rect, std::function<void()> handler, std::string text);
+	GuiButton(cv::Rect rect, std::function<void()> handler, std::string text, OIS::KeyCode hotHey);
 
-	}
+	virtual void Draw(cv::Mat& frame);
+	bool IsSelected(int x, int y);
+	virtual bool Highlighted();
 
-	cv::Rect rect;
-	std::string text;
-	float textScale = 0.6;
-	bool hover = false;
-	bool customHover = false;
-	std::function<void()> onClick;
+	virtual bool HandleInput(OIS::KeyCode c);
+	virtual bool HandleMouse(int e, int x, int y, int f);
+
 	cv::Scalar textColor;
+	float textScale = 0.6;
+	cv::Rect rect;
 
-	bool IsSelected(int x, int y)
-	{
-		return (
-			x > rect.x && x < rect.x + rect.width &&
-			y > rect.y && y < rect.y + rect.height
-			);
-	}
+	static cv::Rect Next(ButtonListOut out);
 
-	void Draw(cv::Mat& frame);
+protected:
+	GuiButton() { ; }
+	virtual void Handle() { handler(); };
+
+	bool hasHotkey = false;
+	OIS::KeyCode hotKey;
+
+	std::string text;
+
+	bool hover = false;
+	std::function<void()> handler;
 };

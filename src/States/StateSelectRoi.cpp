@@ -36,14 +36,14 @@ bool StateSelectRoi::HandleMouse(int e, int x, int y, int f)
 			return true;
 		}
 
-		window->DrawWindow();
+		AskDraw();
 		return true;
 	}
 
 	return false;
 }
 
-void StateSelectRoi::AddGui(Mat& frame)
+void StateSelectRoi::Draw(Mat& frame)
 {
 	putText(frame, title, Point(30, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 

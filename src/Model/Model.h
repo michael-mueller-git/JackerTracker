@@ -74,6 +74,7 @@ enum DRAGGING_BUTTON
 	BUTTON_RIGHT
 };
 
+class TrackingWindow;
 class TrackingEvent;
 class TrackingTarget;
 class TrackingSet;

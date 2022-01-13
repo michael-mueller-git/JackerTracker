@@ -1,12 +1,19 @@
 #include "TrackingWindow.h"
 #include "States/StatePlayer.h"
-#include "States/StateEditSet.h"
+#include "States/Set/StateEditSet.h"
 
+#include <OISException.h>
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/highgui.hpp>
 
+#include <Windows.h>
+
+
 using namespace std;
 using namespace cv;
+using namespace OIS;
+
+OIS::Keyboard* TrackingWindow::inputKeyboard = nullptr;
 
 TrackingWindow::TrackingWindow(string fName)
 	:project(fName), stack(*this), timebar(this)
@@ -14,6 +21,21 @@ TrackingWindow::TrackingWindow(string fName)
 	namedWindow(windowName, 1);
 
 	videoReader = VideoReader::create(fName);
+
+	//HWND hWnd = cvGetWindowHandle(windowName.c_str());
+
+	try {
+		HWND hWnd = (HWND)FindWindow(NULL, windowName.c_str());
+
+		inputManager = InputManager::createInputSystem((size_t)hWnd);
+		inputKeyboard = (Keyboard*)inputManager->createInputObject(OISKeyboard, true);
+		inputKeyboard->setEventCallback(this);
+		inputKeyboard->capture();
+	}
+	catch (OIS::Exception e)
+	{
+		// Input setup error
+	}
 
 	setMouseCallback(windowName, &OnClick, this);
 	createTrackbar("FPS", windowName, &project.maxFPS, 120);
@@ -33,7 +55,7 @@ TrackingWindow::TrackingWindow(string fName)
 
 TrackingWindow::~TrackingWindow()
 {
-
+	InputManager::destroyInputSystem(inputManager);
 }
 
 void TrackingWindow::SetPlaying(bool p)
@@ -50,7 +72,23 @@ void TrackingWindow::DrawWindow(bool b)
 {
 	drawRequested = true;
 	if (b)
-		buttonUpdateRequested = true;
+		elementUpdateRequested = true;
+}
+
+void TrackingWindow::UpdateElements()
+{
+	guiElements.clear();
+	buttons.clear();
+
+	auto s = stack.GetState();
+	if (!s)
+		return;
+	
+	s->UpdateButtons(buttons);
+
+	guiElements.emplace_back(*s);
+	for (auto& b : buttons)
+		guiElements.emplace_back(*b);
 }
 
 void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
@@ -59,23 +97,19 @@ void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
 	if (!s)
 		return;
 
-	if (!inFrame)
+	if (inFrame.empty())
 		return;
 
-	inFrame->download(outFrame, stream);
+	inFrame.download(outFrame, stream);
 
-	if (buttonUpdateRequested)
+	if (elementUpdateRequested)
 	{
-		buttons.clear();
-		s->UpdateButtons(buttons);
-		buttonUpdateRequested = false;
+		UpdateElements();
+		elementUpdateRequested = false;
 	}
 
-	s->AddGui(outFrame);
-	for (auto& b : buttons)
-	{
-		b.Draw(outFrame);
-	}
+	for (auto& e : guiElements)
+		e.get().DoDraw(outFrame);
 
 	putText(outFrame, "State: " + s->GetName(), Point(30, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
@@ -98,28 +132,20 @@ void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
 bool TrackingWindow::ReadCleanFrame(cuda::Stream& stream)
 {
 	inFrame = videoReader->NextFrame(stream);
-	if (!inFrame)
-	{
+	if (inFrame.empty())
 		return false;
-	}
-
-	time_t frameTime = videoReader->GetPosition();
-	if (frameTime != lastFrameTime)
-	{
-		lastFrameTime = frameTime;
-	}
 
 	// Play audio
-
+	
 	if (videoScale != 1)
 	{
-		int w = inFrame->size().width * videoScale;
-		int h = inFrame->size().height * videoScale;
+		int w = inFrame.size().width * videoScale;
+		int h = inFrame.size().height * videoScale;
 
 		Size s(w, h);
 
-		cuda::resize(*inFrame, resizeBuffer, s);
-		inFrame = &resizeBuffer;
+		cuda::resize(inFrame, resizeBuffer, s);
+		inFrame = resizeBuffer;
 	}
 
 	return true;
@@ -131,7 +157,19 @@ void TrackingWindow::Run()
 		RunOnce();
 }
 
-#include <conio.h> // to support _getch
+bool TrackingWindow::keyPressed(const KeyEvent& arg)
+{
+	return false;
+}
+
+bool TrackingWindow::keyReleased(const KeyEvent& arg)
+{
+	for (auto& g : guiElements)
+		if (g.get().HandleInput(arg.key))
+			break;
+
+	return false;
+}
 
 void TrackingWindow::RunOnce()
 {
@@ -146,27 +184,21 @@ void TrackingWindow::RunOnce()
 	}
 
 	s->Update();
+
+	for (auto& e : guiElements)
+		if (e.get().DrawRequested())
+			drawRequested = true;
+
+
 	if (drawRequested)
 	{
 		ReallyDrawWindow();
 		drawRequested = false;
 	}
 
-	if (stack.IsDirty())
-		return;
-
-	// Keyboard handling
-	int k = waitKeyEx(1);
-	if (k == lastKey)
-		return;
-
-	if (k == 'q')
-		stack.PopState();
-
-	else if (k > 0)
-		s->HandleInput(k);
-
-	lastKey = k;
+	inputKeyboard->capture();
+	// Do cycle processing
+	waitKey(1);
 }
 
 void TrackingWindow::OnTrackbar(int v, void* p)
@@ -197,62 +229,15 @@ void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 	if (!s)
 		return;
 
-	Size outSize = me->GetInFrame()->size();
+	Size outSize = me->GetInFrame().size();
 	Size inSize = me->GetOutFrame()->size();
 
 	x = mapValue<int, int>(x, 0, inSize.width, 0, outSize.width);
 	y = mapValue<int, int>(y, 0, inSize.height, 0, outSize.height);
 
-	bool handled = false;
-
-	if (e == EVENT_MOUSEMOVE)
-	{
-		for (auto& b : me->buttons)
-		{
-			if (b.customHover)
-				continue;
-
-			bool hover = b.IsSelected(x, y);
-
-			if (hover != b.hover)
-			{
-				b.hover = hover;
-				me->drawRequested = true;
-			}
-		}
-	}
-	else if (e == EVENT_LBUTTONDOWN)
-	{
-		for (auto& b : me->buttons)
-		{
-			if (b.IsSelected(x, y))
-			{
-				me->pressingButton = true;
-				handled = true;
-			}
-		}
-	}
-	else if (e == EVENT_LBUTTONUP)
-	{
-		if (me->pressingButton)
-		{
-			for (auto& b : me->buttons)
-			{
-				if (b.IsSelected(x, y))
-				{
-					b.onClick();
-					me->drawRequested = true;
-					handled = true;
-					break;
-				}
-			}
-		}
-
-		me->pressingButton = false;
-	}
-
-	if(!handled)
-		s->HandleMouse(e, x, y, f);
+	for (auto& g : me->guiElements)
+		if (g.get().HandleMouse(e, x, y, f))
+			return;
 }
 
 void TrackingWindow::SetPosition(time_t position, bool updateTrackbar)
@@ -261,15 +246,14 @@ void TrackingWindow::SetPosition(time_t position, bool updateTrackbar)
 
 	cuda::Stream stream;
 
-	time_t frameTime = lastFrameTime;
-	lastFrameTime = 0;
-	
 	ReadCleanFrame(stream);
+	while(videoReader->GetPosition() < position)
+		ReadCleanFrame(stream);
 
 	if(updateTrackbar)
 		UpdateTrackbar();
 
-	ReallyDrawWindow(stream);
+	DrawWindow();
 }
 
 time_t TrackingWindow::GetCurrentPosition()

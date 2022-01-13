@@ -18,7 +18,7 @@ public:
     VideoReaderImp(std::string fileName);
     ~VideoReaderImp();
 
-    cv::cuda::GpuMat* NextFrame(cv::cuda::Stream& stream);
+    cv::cuda::GpuMat NextFrame(cv::cuda::Stream& stream);
     bool Seek(unsigned long time);
     unsigned long GetPosition();
     unsigned long GetDuration();
@@ -49,56 +49,43 @@ VideoReaderImp::~VideoReaderImp()
     delete dec;
 }
 
-cv::cuda::GpuMat* VideoReaderImp::NextFrame(cv::cuda::Stream& stream)
+cv::cuda::GpuMat VideoReaderImp::NextFrame(cv::cuda::Stream& stream)
 {
-    cv::cuda::GpuMat* ptr = dec->GetFrame();
-    if (ptr)
-        return ptr;
+    if (dec->NumFrames())
+        return dec->GetFrame();
 
     int nVideoBytes = 0, nFrameReturned = 0;
     int64_t pts = 0;
 
     uint8_t* pVideo = NULL;
     int tries = 0;
-    bool multiple = false;
 
     while (tries < 10)
     {
         demuxer.Demux(&pVideo, &nVideoBytes, &pts);
-        nFrameReturned = dec->Decode(pVideo, nVideoBytes, 0, 0, cv::cuda::StreamAccessor::getStream(stream));
+        nFrameReturned = dec->Decode(pVideo, nVideoBytes, 0, pts, cv::cuda::StreamAccessor::getStream(stream));
 
         if (nFrameReturned)
         {
-            if (nFrameReturned > 1)
-                multiple = true;
-
-            if (pts && lastPts && pts < lastPts)
-            {
-                //continue;
-            }
-
             break;
         }
 
         tries++;
     }
 
-    if (pts > lastPts)
-        lastPts = pts;
+    if (dec->NumFrames() == 0)
+        throw "Reading failed";
+
+    lastPts = pts;
 
     return dec->GetFrame();
 }
 
 bool VideoReaderImp::Seek(unsigned long time)
 {
-    // Clean buffer
-    while (dec->GetFrame())
-        ;
-
     dec->Flush();
 
-    lastPts = time;
-    return demuxer.Seek(time, time < lastPts);
+    return demuxer.Seek(time);
 }
 
 unsigned long VideoReaderImp::GetPosition()

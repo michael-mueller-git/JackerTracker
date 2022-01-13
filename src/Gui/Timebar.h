@@ -11,16 +11,28 @@ class Timebar : public StateBase
 {
 public:
 	Timebar(TrackingWindow* window);
-	void AddGui(cv::Mat& frame);
-	void UpdateButtons(std::vector<GuiButton>& out);
+	void Draw(cv::Mat& frame);
+	void UpdateButtons(ButtonListOut out);
 
 	void SelectTrackingSet(TrackingSet* s);
 	TrackingSet* GetSelectedSet() { return selectedSet; }
 	TrackingSet* GetNextSet();
 	TrackingSet* GetPreviousSet();
 
-	std::string GetName() const { return "Timebar"; }
+	std::string GetName() { return "Timebar"; }
 
 protected:
 	TrackingSet* selectedSet = nullptr;
+};
+
+class TimebarButton : public GuiButton
+{
+public:
+	TimebarButton(TrackingWindow* w, TrackingSet* set, cv::Rect bar);
+	bool Highlighted() override;
+protected:
+	void Handle() override;
+
+	TrackingSet* set = nullptr;
+	TrackingWindow* w;
 };

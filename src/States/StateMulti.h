@@ -2,62 +2,59 @@
 
 #include "States.h"
 
+#include <memory>
+
 class MultiState : public StateBase
 {
 public:
-	MultiState(TrackingWindow* window, StateBase* primaryState)
-		:StateBase(window)
-	{
-		AddState(primaryState, false);
-	}
+	MultiState(TrackingWindow* window, StateBase& primaryState);
 
-	~MultiState()
-	{
-		if (states.size() > 1)
-			for (auto& s : states)
-				if (s.own)
-					delete s.state;
-	}
+	void Reset(StateBase& primaryState);
 
-	void AddState(StateBase* state, bool own)
+	void AddState(StateBase& state, bool own)
 	{
 		states.push_back({ state , own });
 	}
 
+	void AddState(StateBase* state, bool own)
+	{
+		states.push_back({ *state , own });
+	}
+
 	void EnterState(bool again)
 	{
-		states.at(0).state->EnterState(again);
+		PrimaryState().EnterState(again);
 	};
 
 	void LeaveState()
 	{
-		states.at(0).state->LeaveState();
+		PrimaryState().LeaveState();
 	};
 
-	void UpdateButtons(std::vector<GuiButton>& out)
+	void UpdateButtons(ButtonListOut out)
 	{
 		for (int s = states.size(); s > 0; s--)
 		{
-			states.at(s - 1).state->UpdateButtons(out);
+			states.at(s - 1).State().UpdateButtons(out);
 		}
 	}
 
-	void AddGui(cv::Mat& frame)
+	void Draw(cv::Mat& frame)
 	{
-		for (auto s : states)
-			s.state->AddGui(frame);
+		for (auto& s : states)
+			s.State().Draw(frame);
 	}
 
 	void Update()
 	{
-		for (auto s : states)
-			s.state->Update();
+		for (auto& s : states)
+			s.State().Update();
 	};
 
-	bool HandleInput(int c)
+	bool HandleInput(OIS::KeyCode c)
 	{
-		for (auto s : states)
-			if (s.state->HandleInput(c))
+		for (auto& s : states)
+			if (s.State().HandleInput(c))
 				return true;
 
 		return false;
@@ -65,28 +62,58 @@ public:
 
 	bool HandleMouse(int e, int x, int y, int f)
 	{
-		for (auto s : states)
-			if (s.state->HandleMouse(e, x, y, f))
+		for (auto& s : states)
+			if (s.State().HandleMouse(e, x, y, f))
 				return true;
 
 		return false;
 	}
 
-	std::string GetName() const override
+	bool DrawRequested() override {
+		for (auto& s : states)
+			if (s.State().DrawRequested())
+				return true;
+
+		return false;
+	}
+
+	std::string GetName() override
 	{
-		return states.at(0).state->GetName();
+		return PrimaryState().GetName();
 	}
 
 	bool ShouldPop() override
 	{
-		return states.at(0).state->ShouldPop();
+		return PrimaryState().ShouldPop();
 	};
-
 
 protected:
+	StateBase& PrimaryState()
+	{
+		return states.at(0).State();
+	}
+
 	struct stateStruct {
-		StateBase* state;
-		bool own;
+		stateStruct(StateBase& stateRef, bool own)
+			:own(own), stateRef(stateRef)
+		{
+			if (own)
+				statePtr.reset(&stateRef);
+		}
+
+		StateBase& stateRef;
+		std::unique_ptr<StateBase> statePtr;
+
+		bool own = false;
+
+		StateBase& State()
+		{
+			if (own)
+				return *statePtr;
+			else
+				return stateRef;
+		}
 	};
+
 	std::vector<stateStruct> states;
 };

@@ -3,6 +3,8 @@
 #include "States/States.h"
 #include "States/StateMulti.h"
 
+#include <memory>
+
 class StateStack
 {
 public:
@@ -15,11 +17,9 @@ public:
 	void ReplaceState(StateBase* s);
 	void PopState();
 	StateBase* GetState();
-	bool IsDirty() { return dirty; };
 
 protected:
-	MultiState* multiState = nullptr;
-	std::vector<StateBase*> stack;
+	std::unique_ptr<MultiState> multiState;
+	std::vector<std::unique_ptr<StateBase>> stack;
 	TrackingWindow& window;
-	bool dirty = false;
 };

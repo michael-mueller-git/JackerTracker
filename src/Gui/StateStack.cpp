@@ -5,30 +5,25 @@ StateBase* StateStack::GetState() {
 	if (stack.size() == 0)
 		return nullptr;
 
-	if (!multiState)
-	{
-		multiState = new MultiState(&window, stack.back());
-		multiState->AddState(new StateGlobal(&window), true);
-		multiState->AddState(&window.timebar, false);
-	}
-
-	dirty = false;
-
-	return multiState;
+	return &(*multiState);
 };
 
 void StateStack::PushState(StateBase* s)
 {
-	if (multiState)
+	bool first = stack.size() == 0;
+
+	stack.emplace_back(s);
+	stack.back()->EnterState();
+
+	if (first)
 	{
-		delete multiState;
-		multiState = nullptr;
+		multiState.reset(new MultiState(&window, *stack.back()));
+	}
+	else
+	{
+		multiState->Reset(*stack.back());
 	}
 
-	dirty = true;
-
-	stack.push_back(s);
-	s->EnterState();
 	window.DrawWindow(true);
 }
 
@@ -44,24 +39,18 @@ void StateStack::PopState()
 {
 	assert(stack.size() > 0);
 
-	auto s = stack.back();
-	stack.pop_back();
+	auto& s = stack.back();
 	s->LeaveState();
-	delete s;
 
-	if (multiState)
-	{
-		delete multiState;
-		multiState = nullptr;
-	}
+	if (stack.size() == 1)
+		delete multiState.release();
 
-	dirty = true;
+	stack.pop_back();
 
 	if (stack.size() > 0)
 	{
-		s = stack.back();
-		s->EnterState(true);
-		
+		multiState->Reset(*stack.back());
+		stack.back()->EnterState(true);
 	}
 
 	window.DrawWindow(true);

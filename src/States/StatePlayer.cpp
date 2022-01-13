@@ -1,5 +1,5 @@
 #include "StatePlayer.h"
-#include "StateEditSet.h"
+#include "Set/StateEditSet.h"
 #include "Gui/TrackingWindow.h"
 
 #include <chrono>
@@ -8,6 +8,7 @@
 using namespace std;
 using namespace chrono;
 using namespace cv;
+using namespace OIS;
 
 // StatePlayer
 
@@ -23,10 +24,13 @@ void StatePlayer::SetPlaying(bool p)
 	window->SetPlaying(p); 
 }
 
-void StatePlayer::UpdateButtons(vector<GuiButton>& out)
+void StatePlayer::UpdateButtons(ButtonListOut out)
 {
 	StateBase::UpdateButtons(out);
-	AddButton(out, "Add tracking", '+');
+	
+	AddButton(out, "Add tracking", [](auto w) {
+		w->PushState(new StateEditSet(w, w->AddSet()));
+	}, KC_ADD);
 }
 
 void StatePlayer::UpdateFPS()
@@ -60,14 +64,14 @@ void StatePlayer::Update()
 
 void StatePlayer::LastFrame()
 {
-	time_t time = window->GetCurrentPosition() - 200;
+	time_t time = window->GetCurrentPosition() - 4000;
 	if (time >= 0)
 		window->SetPosition(time);
 
-	window->DrawWindow();
+	AskDraw();
 }
 
-void StatePlayer::AddGui(Mat& frame)
+void StatePlayer::Draw(Mat& frame)
 {
 	if (playing)
 	{
@@ -94,9 +98,9 @@ void StatePlayer::AddGui(Mat& frame)
 	}
 }
 
-bool StatePlayer::HandleInput(int c)
+bool StatePlayer::HandleStateInput(OIS::KeyCode c)
 {
-	if (c == ' ')
+	if (c == KC_SPACE)
 	{
 		SetPlaying(!playing);
 		window->DrawWindow(true);
@@ -109,22 +113,15 @@ bool StatePlayer::HandleInput(int c)
 		return true;
 	}
 
-	if (c == '+')
-	{
-		auto s = window->AddSet();
-		window->stack.PushState(new StateEditSet(window, s));
-		return true;
-	}
-
 	// Left
-	if (c == 2424832)
+	if (c == KC_LEFT)
 	{
 		LastFrame();
 		return true;
 	}
 	
 	// Right
-	if (c == 2555904)
+	if (c == KC_RIGHT)
 	{
 		NextFrame();
 		return true;
@@ -165,5 +162,5 @@ void StatePlayerImpl::NextFrame()
 {
 	window->ReadCleanFrame();
 	window->UpdateTrackbar();
-	window->DrawWindow();
+	AskDraw();
 }
