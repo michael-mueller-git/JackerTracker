@@ -23,7 +23,6 @@ public:
 		color = PickColor(index);
 	}
 
-	TrackingEvent* GetResult(TrackingSet& set, time_t time, EventType type, bool findLast = false);
 	bool SupportsTrackingType(TRACKING_TYPE t);
 	void UpdateType();
 	void Draw(cv::Mat& frame);

@@ -21,7 +21,7 @@ public:
 protected:
 	virtual void NextFrame() = 0;
 	virtual void LastFrame();
-	void UpdateFPS();
+	void UpdateFPS(int numFrames = 1);
 	void SyncFps();
 	virtual void SetPlaying(bool p);
 
@@ -30,7 +30,7 @@ protected:
 	unsigned int timerFrames;
 	int drawFps;
 	std::chrono::time_point<std::chrono::steady_clock> lastUpdate;
-	TrackingSet* lastSet = nullptr;
+	TrackingSetPtr lastSet = nullptr;
 	TrackingCalculator calculator;
 };
 

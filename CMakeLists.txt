@@ -10,6 +10,7 @@ find_library(AVUTIL_LIBRARY avutil)
 find_library(swresample_LIBRARY swresample)
 
 add_subdirectory(lib/fftw)
+add_subdirectory(lib/OIS)
 
 #Guid start
 	add_library(
@@ -64,6 +65,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 	lib/fftw/api
 	lib/json
 	lib/magic_enum/include
+	lib/OIS/includes
 	src
 )
 
@@ -90,6 +92,7 @@ target_link_libraries(${PROJECT_NAME}
 	cuda
 	nvcuvid
 	crossguid
+	OIS
 )
 
 set(MY_PATH "PATH=${CMAKE_CURRENT_SOURCE_DIR}/lib/ffmpeg/bin;${CMAKE_CURRENT_SOURCE_DIR}/lib/opencv/Build/bin/Debug;C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.5/bin;${CMAKE_CURRENT_SOURCE_DIR}/lib/fftw")

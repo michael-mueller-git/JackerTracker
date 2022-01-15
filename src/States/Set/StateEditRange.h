@@ -6,7 +6,7 @@
 class StateEditRange : public StateBase
 {
 public:
-	StateEditRange(TrackingWindow* window, TrackingSet* set, time_t time);
+	StateEditRange(TrackingWindow* window, TrackingSetPtr set, time_t time);
 
 	void Draw(cv::Mat& frame);
 	void EnterState(bool again);
@@ -17,8 +17,8 @@ public:
 	std::string GetName() { return "EditRange"; }
 
 protected:
-	TrackingSet* set;
+	TrackingSetPtr set;
 	time_t time;
 	TrackingCalculator calculator;
-	TrackingEvent* rangeEvent;
+	EventPtr rangeEvent;
 };

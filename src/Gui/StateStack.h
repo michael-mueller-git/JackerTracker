@@ -1,7 +1,6 @@
 #pragma once
 
 #include "States/States.h"
-#include "States/StateMulti.h"
 
 #include <memory>
 
@@ -15,11 +14,11 @@ public:
 
 	void PushState(StateBase* s);
 	void ReplaceState(StateBase* s);
-	void PopState();
-	StateBase* GetState();
+	void PopState(bool enter = true);
+	StateBase& GetState();
+	bool HasState();
 
 protected:
-	std::unique_ptr<MultiState> multiState;
 	std::vector<std::unique_ptr<StateBase>> stack;
 	TrackingWindow& window;
 };

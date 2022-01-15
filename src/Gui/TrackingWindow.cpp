@@ -10,13 +10,14 @@
 
 
 using namespace std;
+using namespace chrono;
 using namespace cv;
 using namespace OIS;
 
 OIS::Keyboard* TrackingWindow::inputKeyboard = nullptr;
 
 TrackingWindow::TrackingWindow(string fName)
-	:project(fName), stack(*this), timebar(this)
+	:project(fName), stack(*this), timebar(this), stateGlobal(this)
 {
 	namedWindow(windowName, 1);
 
@@ -46,7 +47,7 @@ TrackingWindow::TrackingWindow(string fName)
 
 	if (project.sets.size() > 0)
 	{
-		timebar.SelectTrackingSet(&project.sets.at(0));
+		timebar.SelectTrackingSet(project.sets.at(0));
 		stack.PushState(new StateEditSet(this, timebar.GetSelectedSet()));
 	}
 
@@ -75,30 +76,50 @@ void TrackingWindow::DrawWindow(bool b)
 		elementUpdateRequested = true;
 }
 
-void TrackingWindow::UpdateElements()
+void TrackingWindow::ClearElements()
 {
 	guiElements.clear();
 	buttons.clear();
+}
 
-	auto s = stack.GetState();
-	if (!s)
+void TrackingWindow::UpdateElements()
+{
+	ClearElements();
+
+	if (!stack.HasState())
 		return;
-	
-	s->UpdateButtons(buttons);
 
-	guiElements.emplace_back(*s);
+	StateBase& s = stack.GetState();
+
+	reference_wrapper<StateBase> states[] = {
+		stateGlobal,
+		timebar,
+		s
+	};
+
+	for (StateBase& s : states)
+	{
+		s.UpdateButtons(buttons);
+		guiElements.emplace_back(s);
+	}
+
 	for (auto& b : buttons)
 		guiElements.emplace_back(*b);
+
+	sort(guiElements.begin(), guiElements.end(), [](auto& a, auto& b) {
+		return a.get().GetLayerNum() < b.get().GetLayerNum();
+	});
 }
 
 void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
 {
-	auto s = stack.GetState();
-	if (!s)
-		return;
-
 	if (inFrame.empty())
 		return;
+
+	if (!stack.HasState())
+		return;
+
+	StateBase& s = stack.GetState();
 
 	inFrame.download(outFrame, stream);
 
@@ -111,7 +132,7 @@ void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
 	for (auto& e : guiElements)
 		e.get().DoDraw(outFrame);
 
-	putText(outFrame, "State: " + s->GetName(), Point(30, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+	putText(outFrame, "State: " + s.GetName(), Point(30, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
 	if (videoScale != 1)
 	{
@@ -129,61 +150,67 @@ void TrackingWindow::ReallyDrawWindow(cuda::Stream& stream)
 	imshow(windowName, outFrame);
 }
 
-bool TrackingWindow::ReadCleanFrame(cuda::Stream& stream)
+void TrackingWindow::SetInFrame(cv::cuda::GpuMat inFrame, bool lock)
 {
-	inFrame = videoReader->NextFrame(stream);
-	if (inFrame.empty())
-		return false;
+	this->inFrame = inFrame; 
+	this->inFrameLocked = lock;
+};
+
+cv::cuda::GpuMat TrackingWindow::ReadCleanFrame(cuda::Stream& stream)
+{
+	cv::cuda::GpuMat newFrame = videoReader->NextFrame(stream);
+	if (newFrame.empty())
+		throw "Reading frame failed";
 
 	// Play audio
 	
 	if (videoScale != 1)
 	{
-		int w = inFrame.size().width * videoScale;
-		int h = inFrame.size().height * videoScale;
+		int w = newFrame.size().width * videoScale;
+		int h = newFrame.size().height * videoScale;
 
 		Size s(w, h);
 
 		cuda::resize(inFrame, resizeBuffer, s);
-		inFrame = resizeBuffer;
+		newFrame = resizeBuffer;
 	}
 
-	return true;
+	if (!inFrameLocked)
+		inFrame = newFrame;
+
+	return newFrame;
 }
 
 void TrackingWindow::Run()
 {
-	while (stack.GetState() != nullptr)
+	while (stack.HasState())
 		RunOnce();
-}
-
-bool TrackingWindow::keyPressed(const KeyEvent& arg)
-{
-	return false;
-}
-
-bool TrackingWindow::keyReleased(const KeyEvent& arg)
-{
-	for (auto& g : guiElements)
-		if (g.get().HandleInput(arg.key))
-			break;
-
-	return false;
 }
 
 void TrackingWindow::RunOnce()
 {
-	auto s = stack.GetState();
-	if (!s)
+	if (!stack.HasState())
 		return;
-
-	if (s->ShouldPop())
+	
+	StateBase& s = stack.GetState();
+	
+	if (s.ShouldPop())
 	{
 		stack.PopState();
 		return;
 	}
 
-	s->Update();
+	if (seekPos > 0)
+	{
+		int deltaTime = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - lastSeek).count();
+		if (deltaTime > 60)
+		{
+			SetPosition(seekPos, false);
+			seekPos = 0;
+		}
+	}
+
+	s.Update();
 
 	for (auto& e : guiElements)
 		if (e.get().DrawRequested())
@@ -201,32 +228,49 @@ void TrackingWindow::RunOnce()
 	waitKey(1);
 }
 
+// Event handlers
+
+bool TrackingWindow::keyPressed(const KeyEvent& arg)
+{
+	return false;
+}
+
+bool TrackingWindow::keyReleased(const KeyEvent& arg)
+{
+	for (auto g = guiElements.rbegin(); g != guiElements.rend(); g++)
+		if (g->get().HandleInput(arg.key))
+			return false;
+
+	return false;
+}
+
 void TrackingWindow::OnTrackbar(int v, void* p)
 {
 	TrackingWindow* me = (TrackingWindow*)p;
 
 	if (me->trackbarUpdating)
 		return;
-
-	auto s = me->stack.GetState();
-	if (!s)
+	
+	if (!me->stack.HasState())
 		return;
 
-	if (me->isPlaying || s->GetName() == "Tracking")
+	StateBase& s = me->stack.GetState();
+	
+	if (me->isPlaying || s.GetName() == "Tracking")
 	{
 		me->UpdateTrackbar();
 		return;
 	}
 
-	time_t t = mapValue<int, time_t>(v, 0, 1000, 0, me->GetDuration());
-	me->SetPosition(t, false);
+	me->seekPos = mapValue<int, time_t>(v, 0, 1000, 0, me->GetDuration());
+	me->lastSeek = steady_clock::now();
 }
 
 void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 {
 	TrackingWindow* me = (TrackingWindow*)p;
-	auto s = me->stack.GetState();
-	if (!s)
+	
+	if (!me->stack.HasState())
 		return;
 
 	Size outSize = me->GetInFrame().size();
@@ -235,8 +279,8 @@ void TrackingWindow::OnClick(int e, int x, int y, int f, void* p)
 	x = mapValue<int, int>(x, 0, inSize.width, 0, outSize.width);
 	y = mapValue<int, int>(y, 0, inSize.height, 0, outSize.height);
 
-	for (auto& g : me->guiElements)
-		if (g.get().HandleMouse(e, x, y, f))
+	for (auto g = me->guiElements.rbegin(); g != me->guiElements.rend(); g++)
+		if (g->get().HandleMouse(e, x, y, f))
 			return;
 }
 
@@ -274,37 +318,37 @@ void TrackingWindow::UpdateTrackbar()
 	trackbarUpdating = false;
 }
 
-TrackingSet* TrackingWindow::AddSet()
+TrackingSetPtr TrackingWindow::AddSet()
 {
 	time_t t = GetCurrentPosition();
 	//Jump to keyframe
 	SetPosition(t);
 
-	auto it = find_if(project.sets.begin(), project.sets.end(), [t](TrackingSet& set) { return t <= set.timeStart; });
+	auto it = find_if(project.sets.begin(), project.sets.end(), [t](TrackingSetPtr set) { return t <= set->timeStart; });
 	
-	if (it != project.sets.end() && it->timeStart == t)
+	if (it != project.sets.end() && it->get()->timeStart == t)
 		return nullptr;
 	
-	it = project.sets.emplace(it, t, t);
+	it = project.sets.emplace(it, make_shared<TrackingSet>(t, t));
 
-	for (auto& s : project.sets)
+	for (auto s : project.sets)
 	{
-		if (s.timeStart <= t && s.timeEnd >= t)
+		if (s->timeStart <= t && s->timeEnd >= t)
 		{
-			s.ClearEvents([t](auto& e) {
-				return e.time < t;
+			s->events->ClearEvents([t](EventPtr e) {
+				return e->time < t;
 			});
 			
-			s.timeEnd = t;
+			s->timeEnd = t;
 		}
 	}
 
-	return &(*it);
+	return *it;
 }
 
-void TrackingWindow::DeleteTrackingSet(TrackingSet* s)
+void TrackingWindow::DeleteTrackingSet(TrackingSetPtr s)
 {
-	auto it = find_if(project.sets.begin(), project.sets.end(), [s](TrackingSet& set) { return &set == s; });
+	auto it = find_if(project.sets.begin(), project.sets.end(), [s](TrackingSetPtr set) { return set == s; });
 	if (it == project.sets.end())
 		return;
 

@@ -6,7 +6,7 @@
 using namespace cv;
 using namespace std;
 
-StateEditRange::StateEditRange(TrackingWindow* window, TrackingSet* set, time_t time)
+StateEditRange::StateEditRange(TrackingWindow* window, TrackingSetPtr set, time_t time)
 	:StateBase(window), set(set), time(time)
 {
 
@@ -14,48 +14,19 @@ StateEditRange::StateEditRange(TrackingWindow* window, TrackingSet* set, time_t 
 
 void StateEditRange::Draw(cv::Mat& frame)
 {
-	calculator.Draw(*set, frame, time, false);
+	calculator.Draw(set, frame, time, false);
 }
 
 void StateEditRange::EnterState(bool again)
 {
-	window->SetPosition(time);
-	rangeEvent = set->GetResult(time, EventType::TET_POSITION_RANGE);
-	int rangeMin = 0, rangeMax = 0;
+	auto& eventList = set->events;
 
+	window->SetPosition(time);
+	rangeEvent = eventList->GetEvent(time, EventType::TET_POSITION_RANGE);
 	if (!rangeEvent)
 	{
-		rangeEvent = set->GetResult(time, EventType::TET_POSITION_RANGE, nullptr, true);
-
-		if (rangeEvent)
-		{
-			rangeMin = rangeEvent->minDistance;
-			rangeMax = rangeEvent->maxDistance;
-		}
-		else
-		{
-			vector<TrackingEvent*> events;
-			set->GetEvents(set->timeStart, set->timeEnd, events);
-
-			for (auto e : events)
-			{
-				if (e->type != EventType::TET_POSITION)
-					continue;
-
-				rangeMin = min((int)e->size, rangeMin);
-				rangeMax = max((int)e->size, rangeMax);
-			}
-		}
-
-		if (rangeMin == 0 && rangeMax == 0)
-		{
-			Pop();
-			return;
-		}
-
-		rangeEvent = &set->AddEvent(EventType::TET_POSITION_RANGE, time);
-		rangeEvent->minDistance = rangeMin;
-		rangeEvent->maxDistance = rangeMax;
+		TrackingEvent e = calculator.GetRange(eventList, time);
+		rangeEvent = eventList->AddEvent(make_shared<TrackingEvent>(e));
 	}
 
 	namedWindow("Settings");
@@ -78,6 +49,6 @@ void StateEditRange::Update()
 
 void StateEditRange::Recalc()
 {
-	calculator.Recalc(*set, time);
+	calculator.UpdatePositions(set->events);
 	AskDraw();
 }

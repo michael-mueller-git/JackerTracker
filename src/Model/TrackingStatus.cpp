@@ -5,6 +5,7 @@
 #include <opencv2/imgproc.hpp>
 
 using namespace cv;
+using namespace std;
 
 TrackingStatus* TrackingTarget::InitTracking(TRACKING_TYPE t)
 {
@@ -62,19 +63,22 @@ void TrackingStatusBase::Draw(Mat& frame)
 	}
 }
 
-void TrackingStatus::SnapResult(TrackingSet& set, time_t time)
+void TrackingStatus::SnapResult(EventListPtr& events, time_t time)
 {
+	lock_guard<mutex> lock(events->mtx);
 
-	TrackingEvent& e = set.AddEvent(EventType::TET_POINT, time, &parent);
-	e.point = center;
+	EventPtr e;
+
+	e = events->AddEvent(EventType::TET_POINT, time, &parent);
+	e->point = center;
 
 	if (size != 0)
 	{
-		TrackingEvent& e2 = set.AddEvent(EventType::TET_SIZE, time, &parent);
-		e.size = size;
+		e = events->AddEvent(EventType::TET_SIZE, time, &parent);
+		e->size = size;
 	}
 
-	TrackingEvent& e3 = set.AddEvent(EventType::TET_STATE, time, &parent);
+	e = events->AddEvent(EventType::TET_STATE, time, &parent);
 	TrackingStatusBase& state = *reinterpret_cast<TrackingStatusBase*>(this);
-	e3.state = state;
+	e->state = state;
 }

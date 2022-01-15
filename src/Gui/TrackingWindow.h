@@ -3,9 +3,10 @@
 #include "Reader/VideoReader.h"
 
 #include "GuiElement.h"
-#include "Timebar.h"
 #include "StateStack.h"
 #include "Model/Project.h"
+
+#include "Timebar.h"
 
 #include <OISInputManager.h>
 #include <OISKeyboard.h>
@@ -20,18 +21,18 @@ public:
 	TrackingWindow(std::string fName);
 	~TrackingWindow();
 	
-	bool ReadCleanFrame(cv::cuda::Stream& stream = cv::cuda::Stream::Null());
-
 	cv::cuda::GpuMat GetInFrame() { return inFrame; };
+	void SetInFrame(cv::cuda::GpuMat inFrame, bool lock);
+	cv::cuda::GpuMat ReadCleanFrame(cv::cuda::Stream& stream = cv::cuda::Stream::Null());
+
 	cv::Mat* GetOutFrame() { return &outFrame; };
 	void DrawWindow(bool updateButtons = false);
-	
 	
 	void Run();
 	void UpdateTrackbar();
 
-	TrackingSet* AddSet();
-	void DeleteTrackingSet(TrackingSet* s);
+	TrackingSetPtr AddSet();
+	void DeleteTrackingSet(TrackingSetPtr s);
 
 	time_t GetCurrentPosition();
 	time_t GetDuration();
@@ -39,10 +40,9 @@ public:
 
 	bool IsPlaying();
 	void SetPlaying(bool playing);
-	bool keyPressed(const OIS::KeyEvent& arg) override;
-	bool keyReleased(const OIS::KeyEvent& arg) override;
 
 	void UpdateElements();
+	void ClearElements();
 
 	void PushState(StateBase* state)
 	{
@@ -59,6 +59,11 @@ public:
 	static OIS::Keyboard* inputKeyboard;
 
 protected:
+
+	// Event handlers
+
+	bool keyPressed(const OIS::KeyEvent& arg) override;
+	bool keyReleased(const OIS::KeyEvent& arg) override;
 	static void OnTrackbar(int v, void* p);
 	static void OnClick(int e, int x, int y, int f, void* p);
 
@@ -71,6 +76,7 @@ protected:
 	bool trackbarUpdating = false;
 	bool pressingButton = false;
 	bool isPlaying = false;
+	bool inFrameLocked = false;
 
 	cv::cuda::GpuMat resizeBuffer;
 	cv::cuda::GpuMat inFrame;
@@ -79,8 +85,11 @@ protected:
 	OIS::InputManager* inputManager = nullptr;
 	cv::Ptr<VideoReader> videoReader;
 
+	StateGlobal stateGlobal;
 	ButtonList buttons;
 	std::vector<std::reference_wrapper<GuiElement>> guiElements;
+	std::chrono::steady_clock::time_point lastSeek;
+	time_t seekPos = 0;
 
 	float videoScale = 1;
 };

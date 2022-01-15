@@ -45,6 +45,7 @@ public:
 		}
 	};
 
+	int GetLayerNum() { return GUI_LAYER_STATE; };
 	virtual void Draw(cv::Mat& frame) { ; };
 	virtual void Update() {};
 	virtual bool HandleStateInput(OIS::KeyCode c) { return false; };

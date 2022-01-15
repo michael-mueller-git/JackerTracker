@@ -1,14 +1,18 @@
 #include "VideoReader.h"
 
-#include "driver_types.h"
-#include <cuda.h>
-
 #include "NvDecoder.h"
 #include "NvCodecUtils.h"
 #include "FFmpegDemuxer.h"
 #include "Logger.h"
 
+#include <driver_types.h>
+#include <cuda.h>
 #include <opencv2/core/cuda_stream_accessor.hpp>
+#include <chrono>
+
+using namespace std;
+using namespace chrono;
+
 
 simplelogger::Logger* logger = simplelogger::LoggerFactory::CreateConsoleLogger();
 
@@ -22,12 +26,19 @@ public:
     bool Seek(unsigned long time);
     unsigned long GetPosition();
     unsigned long GetDuration();
+    void RunThread();
 
 protected:
-    std::string fileName;
+    string fileName;
     FFmpegDemuxer demuxer;
+    
+    mutex decMtx;
     NvDecoder* dec;
+
     int64_t lastPts;
+    thread readThread;
+    bool running = false;
+    bool err = false;
 };
 
 VideoReaderImp::VideoReaderImp(std::string fileName)
@@ -46,43 +57,82 @@ VideoReaderImp::VideoReaderImp(std::string fileName)
 
 VideoReaderImp::~VideoReaderImp()
 {
+    running = false;
+    if (readThread.joinable())
+        readThread.join();
+
     delete dec;
+}
+
+void VideoReaderImp::RunThread()
+{
+    while (running)
+    {
+        int nVideoBytes = 0, nFrameReturned = 0;
+        int64_t pts = 0;
+
+        uint8_t* pVideo = NULL;
+        int tries = 0;
+
+        while (tries < 10)
+        {
+            {
+                lock_guard<mutex> lock(decMtx);
+                demuxer.Demux(&pVideo, &nVideoBytes, &pts);
+                nFrameReturned = dec->Decode(pVideo, nVideoBytes, 0, pts);
+            }
+
+            if (nFrameReturned)
+            {
+                break;
+            }
+
+            tries++;
+        }
+
+        if (nFrameReturned == 0)
+        {
+            err = true;
+            running = false;
+        }
+
+        if (dec->NumFrames() > 60)
+            running = false;
+
+    }
 }
 
 cv::cuda::GpuMat VideoReaderImp::NextFrame(cv::cuda::Stream& stream)
 {
-    if (dec->NumFrames())
-        return dec->GetFrame();
-
-    int nVideoBytes = 0, nFrameReturned = 0;
-    int64_t pts = 0;
-
-    uint8_t* pVideo = NULL;
-    int tries = 0;
-
-    while (tries < 10)
+    if (dec->NumFrames() < 30)
     {
-        demuxer.Demux(&pVideo, &nVideoBytes, &pts);
-        nFrameReturned = dec->Decode(pVideo, nVideoBytes, 0, pts, cv::cuda::StreamAccessor::getStream(stream));
-
-        if (nFrameReturned)
+        if (!running)
         {
-            break;
-        }
+            if (readThread.joinable())
+                readThread.join();
 
-        tries++;
+            running = true;
+            readThread = std::thread(&VideoReaderImp::RunThread, this);
+        }
     }
 
-    if (dec->NumFrames() == 0)
-        throw "Reading failed";
+    auto now = steady_clock::now();
 
-    lastPts = pts;
+    do {
+        if (dec->NumFrames() > 0)
+        {
+            lock_guard<mutex> lock(decMtx);
+            return dec->GetFrame(&lastPts);
+        }
+    } while (duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count() < 1000);
 
-    return dec->GetFrame();
+    throw "Reading failed";
 }
 
 bool VideoReaderImp::Seek(unsigned long time)
 {
+    lock_guard<mutex> lock(decMtx);
+
     dec->Flush();
 
     return demuxer.Seek(time);

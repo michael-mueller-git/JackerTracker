@@ -10,7 +10,7 @@ typedef std::function<void(TrackingTarget t)> AddTrackerCallback;
 class StateEditTarget : public StateBase
 {
 public:
-	StateEditTarget(TrackingWindow* window, TrackingSet* set, TrackingTarget* target);
+	StateEditTarget(TrackingWindow* window, TrackingSetPtr set, TrackingTarget* target);
 
 	void EnterState(bool again);
 
@@ -34,6 +34,6 @@ protected:
 	bool draggingRect = false;
 	DRAGGING_BUTTON draggingBtn = BUTTON_NONE;
 
-	TrackingSet* set;
+	TrackingSetPtr set;
 	TrackingTarget* target;
 };

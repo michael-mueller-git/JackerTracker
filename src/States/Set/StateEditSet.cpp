@@ -2,6 +2,7 @@
 #include "StateEditRange.h"
 #include "States/Target/StateEditTarget.h"
 #include "States/Tracking/StateTracking.h"
+//#include "States/Tracking/StateTrackingThreaded.h"
 #include "Gui/TrackingWindow.h"
 #include "Gui/GuiButtonExpand.h"
 
@@ -15,10 +16,28 @@ using namespace OIS;
 
 // StateEditSet
 
-StateEditSet::StateEditSet(TrackingWindow* window, TrackingSet* set)
-	:StatePlayerImpl(window), set(set)
+StateEditSet::StateEditSet(TrackingWindow* window, TrackingSetPtr set)
+	:StatePlayerImpl(window), set(set), runner(window, set, nullptr, true, false, true)
 {
 
+}
+
+void StateEditSet::Update()
+{
+	StatePlayerImpl::Update();
+
+	if (updatePreview)
+	{
+		auto state = runner.GetState();
+		if (state.framesRdy > 3)
+		{
+			UpdateFPS(state.framesRdy);
+			AskDraw();
+			runner.GetState(true);
+		}
+
+		runner.Update();
+	}
 }
 
 void StateEditSet::EnterState(bool again)
@@ -47,7 +66,20 @@ void StateEditSet::Draw(Mat& frame)
 	else
 		drawState = true;
 
-	calculator.Draw(*set, frame, window->GetCurrentPosition(), false, drawState);
+	calculator.Draw(set, frame, window->GetCurrentPosition(), false, drawState);
+}
+
+void StateEditSet::SetPreview(bool b)
+{
+	if (updatePreview == b)
+		return;
+
+	if (b)
+	{
+		runner.Setup();
+	}
+
+	updatePreview = b;
 }
 
 void StateEditSet::UpdateButtons(ButtonListOut out)
@@ -57,6 +89,16 @@ void StateEditSet::UpdateButtons(ButtonListOut out)
 
 	AddButton(out, "Copy tracking here", [me](auto w) { me->CopySet(); }, KC_A);
 
+	// Live tracking
+	string updateText = "Auto update (";
+	updateText.append(updatePreview ? "Y" : "N");
+	updateText.append(")");
+	AddButton(out, updateText, [me](TrackingWindow* w) {
+		me->SetPreview(!me->updatePreview);
+		w->DrawWindow(true);
+	});
+
+	// Delete
 	GuiButtonExpand* deleteBtn = new GuiButtonExpand(GuiButton::Next(out), "Delete", KC_MINUS);
 	deleteBtn->AddButton(new GuiButton(deleteBtn->Next(), [me]() {
 		me->window->DeleteTrackingSet(me->set);
@@ -64,32 +106,64 @@ void StateEditSet::UpdateButtons(ButtonListOut out)
 	}, "I am sure", KC_Y));
 	out.emplace_back(deleteBtn);
 
-	AddButton(out, "Start tracking", [me](auto w) { w->PushState(new StateTracking(w, me->set)); }, KC_L);
+	// Run tracking
+	out.emplace_back(new GuiButton(GuiButton::Next(out), [me]() {
+		me->window->PushState(new StateTracking(me->window, me->set));
+	}, "Track", KC_T));
 
+	
+	// Set range here
 	AddButton(out, "Range update", [me](auto w) {
 		w->PushState(new StateEditRange(w, me->set, w->GetCurrentPosition()));
 	});
 
+	// Toggle bad
+	AddButton(out, "Toggle frame", [me](auto w) {
+		time_t p = w->GetCurrentPosition();
+		auto frameEvent = me->set->events->GetEvent(p, EventType::TET_BADFRAME);
+		if (frameEvent)
+		{
+			me->set->events->ClearEvents([frameEvent](EventPtr e) {
+				return !(e->time == frameEvent->time && e->type == frameEvent->type);
+			});
+		}
+		else
+		{
+			me->set->events->AddEvent(EventType::TET_BADFRAME, p);
+		}
+
+		me->AskDraw();
+	}, KC_B);
+	 
+	// Tracking mode
 	GuiButtonExpand* modeBtn = new GuiButtonExpand(GuiButton::Next(out), "Mode: " + TrackingModeToString(set->trackingMode));
 	for (auto& t : magic_enum::enum_entries<TrackingMode>())
 	{
 		auto& b = modeBtn->AddButton(new GuiButton(modeBtn->Next(), [me, t]() {
 			me->set->trackingMode = t.first;
 			me->modeOpen = false;
+
+			if (me->updatePreview)
+			{
+				me->SetPreview(false);
+				me->SetPreview(true);
+			}
+
 			me->window->DrawWindow(true);
 		}, TrackingModeToString(t.first)));
 	}
 	out.emplace_back(modeBtn);
 
-	int y = 220;
+	// Target list
 
+	int y = 220;
 	Rect r;
 	GuiButton* b;
 
 	for (int i = 0; i < set->targets.size(); i++)
 	{
 		TrackingTarget* t = &set->targets.at(i);
-		TrackingSet* s = set;
+		TrackingSetPtr s = set;
 
 		r = Rect(
 			380,
@@ -141,6 +215,8 @@ void StateEditSet::UpdateButtons(ButtonListOut out)
 		40
 	);
 
+	// Target + 
+
 	b = &AddButton(
 		out,
 		"Targets",
@@ -164,13 +240,11 @@ void StateEditSet::UpdateButtons(ButtonListOut out)
 		r,
 		KC_ADD
 	);
-
-	me->AskDraw();
 }
 
 void StateEditSet::CopySet()
 {
-	TrackingSet* s = window->AddSet();
+	TrackingSetPtr s = window->AddSet();
 	if (s != nullptr)
 	{
 		int i = 0;
@@ -180,7 +254,7 @@ void StateEditSet::CopySet()
 			s->targets.emplace_back();
 			auto& newTarget = s->targets.back();
 
-			TrackingEvent* state = t.GetResult(*set, window->GetCurrentPosition(), EventType::TET_STATE, true);
+			EventPtr state = s->events->GetEvent(window->GetCurrentPosition(), EventType::TET_STATE, nullptr, true);
 
 			if (state)
 			{

@@ -21,7 +21,7 @@ bool FrameCache::IsCpu(FrameVariant v)
 
 deque<FrameCache::CacheRecord>::iterator FrameCache::FindCache(cv::cuda::GpuMat frame, FrameVariant v)
 {
-    uint cudaPtr = *frame.ptr<uint>();
+    uint cudaPtr = (uint)frame.ptr<uint>();
 
     auto found = find_if(cache.begin(), cache.end(), [cudaPtr, v](auto& c) {
         return c.cudaPtr == cudaPtr && c.variant == v;
@@ -41,7 +41,7 @@ Mat FrameCache::CpuVariant(cv::cuda::GpuMat from, FrameVariant to, cv::cuda::Str
     }
 
 
-    CacheRecord r(true, *from.ptr<uint>(), to);
+    CacheRecord r(true, (uint)from.ptr<uint>(), to);
     cuda::GpuMat buffer;
 
     switch (to) {
@@ -52,6 +52,7 @@ Mat FrameCache::CpuVariant(cv::cuda::GpuMat from, FrameVariant to, cv::cuda::Str
     case FrameVariant::LOCAL_GREY:
         buffer = GpuVariant(from, FrameVariant::GPU_GREY, stream);
         buffer.download(r.cpuFrame);
+        break;
     default:
         throw "Failed";
     }
@@ -74,7 +75,7 @@ cuda::GpuMat FrameCache::GpuVariant(cv::cuda::GpuMat from, FrameVariant to, cv::
     }
 
 
-    CacheRecord r(false, *from.ptr<uint>(), to);
+    CacheRecord r(false, (uint)from.ptr<uint>(), to);
     cuda::GpuMat buffer;
 
     switch (to) {
@@ -83,6 +84,7 @@ cuda::GpuMat FrameCache::GpuVariant(cv::cuda::GpuMat from, FrameVariant to, cv::
         break;
     case FrameVariant::GPU_GREY:
         cuda::cvtColor(from, r.gpuFrame, COLOR_BGRA2GRAY, 0, stream);
+        break;
     default:
         throw "Failed";
     }

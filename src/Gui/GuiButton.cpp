@@ -122,6 +122,11 @@ bool GuiButton::HandleMouse(int e, int x, int y, int f)
 		AskDraw();
 	}
 
+	if (hover && e == EVENT_LBUTTONDOWN)
+	{
+		return true;
+	}
+
 	if (hover && e == EVENT_LBUTTONUP)
 	{
 		Handle();

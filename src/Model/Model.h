@@ -79,3 +79,9 @@ class TrackingEvent;
 class TrackingTarget;
 class TrackingSet;
 class TrackingStatus;
+class EventList;
+class TrackingRunner;
+
+typedef std::unique_ptr<EventList> EventListPtr;
+typedef std::shared_ptr<TrackingEvent> EventPtr;
+typedef std::shared_ptr<TrackingSet> TrackingSetPtr;

@@ -12,8 +12,8 @@ using namespace cv;
 using namespace chrono;
 using namespace OIS;
 
-StateTracking::StateTracking(TrackingWindow* window, TrackingSet* set)
-	:StatePlayer(window), set(set)
+StateTracking::StateTracking(TrackingWindow* window, TrackingSetPtr set)
+	:StatePlayer(window), set(set), runner(window, set, nullptr, true, false, false)
 {
 
 }
@@ -22,52 +22,22 @@ void StateTracking::EnterState(bool again)
 {
 	StatePlayer::EnterState(again);
 
-	window->timebar.SelectTrackingSet(set);
-	calculator.Reset();
-
-	cuda::GpuMat gpuFrame = window->GetInFrame();
-
-	if (trackerBindings.size() > 0)
+	if (!again)
 	{
-		trackerBindings.clear();
+		if (!runner.Setup())
+		{
+			Pop();
+			return;
+		}
+
+		SetPlaying(true);
 	}
-
-	set->ClearEvents([](auto& e) { return e.type == EventType::TET_BADFRAME; });
-
-	trackerBindings.reserve(set->targets.size());
-
-	for (auto& t : set->targets)
-	{
-		TrackerJTType type = t.preferredTracker;
-
-		if (type == TrackerJTType::TRACKER_TYPE_UNKNOWN)
-			if (t.SupportsTrackingType(TRACKING_TYPE::TYPE_POINTS))
-				type = TrackerJTType::GPU_POINTS_PYLSPRASE;
-			else if (t.SupportsTrackingType(TRACKING_TYPE::TYPE_RECT))
-				type = TrackerJTType::CPU_RECT_MEDIAN_FLOW;
-
-		TrackerJTStruct jts = GetTracker(type);
-		if (!t.SupportsTrackingType(jts.trackingType))
-			continue;
-
-		trackerBindings.emplace_back(make_unique<trackerBinding>(&t, jts));
-		trackerBindings.back()->tracker->init(gpuFrame);
-		trackerBindings.back()->state->UpdateColor(trackerBindings.size());
-	}
-
-	if (trackerBindings.size() == 0)
-	{
-		Pop();
-		return;
-	}
-
-	playing = true;
-	window->SetPlaying(playing);
 }
 
-void StateTracking::LeaveState()
+void StateTracking::SetPlaying(bool b)
 {
-	window->timebar.SelectTrackingSet(set);
+	StatePlayer::SetPlaying(b);
+	runner.SetRunning(playing);
 }
 
 void StateTracking::UpdateButtons(ButtonListOut out)
@@ -78,6 +48,7 @@ void StateTracking::UpdateButtons(ButtonListOut out)
 	{
 		auto me = this;
 
+		/*
 		AddButton(out, "Remove points", [me](auto w) {
 			w->PushState(new StateSelectRoi(w, "Select which points to remove",
 				[me](Rect& r) {
@@ -97,9 +68,10 @@ void StateTracking::UpdateButtons(ButtonListOut out)
 				));
 
 		}, KC_R);
+		*/
 
 		AddButton(out, "Remove bads", [me](auto w) {
-			me->set->ClearEvents([](auto& e) { return e.type != EventType::TET_BADFRAME; });
+			me->set->events->ClearEvents([](EventPtr e) { return e->type != EventType::TET_BADFRAME; });
 		});
 	}
 }
@@ -108,6 +80,7 @@ bool StateTracking::RemovePoints(Rect r)
 {
 	bool ret = false;
 
+	/*
 	for (auto& tb : trackerBindings)
 	{
 		if (tb->trackerStruct.type != TRACKING_TYPE::TYPE_POINTS)
@@ -127,6 +100,7 @@ bool StateTracking::RemovePoints(Rect r)
 			ret = true;
 		}
 	}
+	*/
 
 	return ret;
 }
@@ -140,16 +114,7 @@ void StateTracking::Draw(Mat& frame)
 
 	putText(frame, format("FPS=%d", drawFps), Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
-	int y = 100;
-
-	for (auto& b : trackerBindings)
-	{
-		b->state->Draw(frame);
-		putText(frame, format("%s: %dms", b->tracker->GetName(), b->lastUpdateMs), Point(400, y), FONT_HERSHEY_SIMPLEX, 0.6, b->state->color, 2);
-		y += 20;
-	}
-
-	calculator.Draw(*set, frame, window->GetCurrentPosition());
+	runner.Draw(frame);
 }
 
 void StateTracking::Update()
@@ -157,57 +122,21 @@ void StateTracking::Update()
 	if (!playing)
 		return;
 
-	UpdateFPS();
-	SyncFps();
-	NextFrame();
-	
-}
+	auto state = runner.GetState();
+	if (state.framesRdy > 3)
+	{
+		UpdateFPS(state.framesRdy);
+		AskDraw();
+		runner.GetState(true);
+	}
 
-void StateTracking::LastFrame()
-{
+	runner.Update();
 	
+	//SyncFps();
 }
 
 void StateTracking::NextFrame()
 {
-	cuda::Stream stream;
-
-	window->ReadCleanFrame(stream);
-
-	cuda::GpuMat gpuFrame = window->GetInFrame();
-	time_t time = window->GetCurrentPosition();
-
-
-	// Run all trackers on the new frame
-	if (!set->GetResult(time, EventType::TET_BADFRAME))
-	{
-		for (auto& b : trackerBindings)
-		{
-
-			auto now = high_resolution_clock::now();
-			if (!b->tracker->update(gpuFrame, stream))
-			{
-				set->AddEvent(EventType::TET_BADFRAME, time, b->target);
-			}
-
-			b->lastUpdateMs = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count();
-		}
-	}
-	else
-	{
-		bool err = true;
-	}
-
-	stream.waitForCompletion();
-
-	for (auto& b : trackerBindings)
-	{
-		b->state->SnapResult(*set, time);
-	}
-
-	set->timeEnd = time;
-	calculator.Update(*set, time);
-
-
+	runner.Update(true);
 	AskDraw();
 }

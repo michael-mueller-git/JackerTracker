@@ -26,9 +26,9 @@ void Timebar::UpdateButtons(ButtonListOut out)
 		20
 	);
 
-	for (auto& s : window->project.sets)
+	for (auto s : window->project.sets)
 	{
-		out.emplace_back(new TimebarButton(me->window, &s, barRect));
+		out.emplace_back(new TimebarButton(me->window, s, barRect));
 	}
 }
 
@@ -67,13 +67,13 @@ void Timebar::Draw(Mat& frame)
 		Scalar(0, 0, 0), 2
 	);
 
-	for (auto& s : window->project.sets)
+	for (auto s : window->project.sets)
 	{
-		if (s.targets.size() == 0 || s.timeStart == s.timeEnd)
+		if (s->targets.size() == 0 || s->timeStart == s->timeEnd)
 			continue;
 
 		int x1 = mapValue<time_t, int>(
-			s.timeStart,
+			s->timeStart,
 			0,
 			window->GetDuration(),
 			barRect.x,
@@ -81,7 +81,7 @@ void Timebar::Draw(Mat& frame)
 			);
 
 		int x2 = mapValue<time_t, int>(
-			s.timeEnd,
+			s->timeEnd,
 			0,
 			window->GetDuration(),
 			barRect.x,
@@ -93,7 +93,7 @@ void Timebar::Draw(Mat& frame)
 	}
 }
 
-void Timebar::SelectTrackingSet(TrackingSet* s)
+void Timebar::SelectTrackingSet(TrackingSetPtr s)
 {
 	selectedSet = s;
 	if (s)
@@ -103,7 +103,7 @@ void Timebar::SelectTrackingSet(TrackingSet* s)
 	}
 };
 
-TrackingSet* Timebar::GetNextSet()
+TrackingSetPtr Timebar::GetNextSet()
 {
 	if (window->project.sets.size() == 0)
 		return nullptr;
@@ -113,26 +113,26 @@ TrackingSet* Timebar::GetNextSet()
 
 	if (s)
 	{
-		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSet& set) { return &set == s; });
+		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSetPtr set) { return set == s; });
 		assert(it != sets.end());
 		int index = distance(sets.begin(), it);
 		if (index < sets.size() - 1)
-			return &(sets.at(index + 1));
+			return (sets.at(index + 1));
 		else
 			return nullptr;
 	}
 	else
 	{
 		auto t = window->GetCurrentPosition();
-		auto it = find_if(sets.begin(), sets.end(), [t](TrackingSet& set) { return set.timeStart > t; });
+		auto it = find_if(sets.begin(), sets.end(), [t](TrackingSetPtr set) { return set->timeStart > t; });
 		if (it == sets.end())
 			return nullptr;
 
-		return &(*it);
+		return *it;
 	}
 }
 
-TrackingSet* Timebar::GetPreviousSet()
+TrackingSetPtr Timebar::GetPreviousSet()
 {
 	if (window->project.sets.size() == 0)
 		return nullptr;
@@ -143,11 +143,11 @@ TrackingSet* Timebar::GetPreviousSet()
 
 	if (s)
 	{
-		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSet& set) { return &set == s; });
+		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSetPtr set) { return set == s; });
 		assert(it != sets.end());
 		int index = distance(sets.begin(), it);
 		if (index > 0)
-			return &(sets.at(index - 1));
+			return (sets.at(index - 1));
 		else
 			return nullptr;
 	}
@@ -156,17 +156,17 @@ TrackingSet* Timebar::GetPreviousSet()
 
 		auto t = window->GetCurrentPosition();
 
-		auto it = find_if(sets.rbegin(), sets.rend(), [t](TrackingSet& set) { return set.timeStart < t; });
+		auto it = find_if(sets.rbegin(), sets.rend(), [t](TrackingSetPtr set) { return set->timeStart < t; });
 		if (it == sets.rend())
 			return nullptr;
 
-		return &(*it);
+		return *it;
 	}
 }
 
 // TimebarButton
 
-TimebarButton::TimebarButton(TrackingWindow* w, TrackingSet* s, Rect bar)
+TimebarButton::TimebarButton(TrackingWindow* w, TrackingSetPtr s, Rect bar)
 	:w(w), set(s)
 {
 	int x = mapValue<time_t, int>(
@@ -190,15 +190,16 @@ TimebarButton::TimebarButton(TrackingWindow* w, TrackingSet* s, Rect bar)
 
 void TimebarButton::Handle()
 {
-	auto s = w->stack.GetState();
-	if (!s)
+	if (!w->stack.HasState())
 		return;
-
-	if (s->GetName() == "Playing")
+	
+	StateBase& s = w->stack.GetState();
+	
+	if (s.GetName() == "Playing")
 	{
 		w->PushState(new StateEditSet(w, set));
 	}
-	else if (s->GetName() == "EditSet")
+	else if (s.GetName() == "EditSet")
 	{
 		w->stack.ReplaceState(new StateEditSet(w, set));
 	}

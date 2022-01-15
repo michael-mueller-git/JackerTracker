@@ -1,11 +1,15 @@
 #include "StateStack.h"
 #include "TrackingWindow.h"
 
-StateBase* StateStack::GetState() {
-	if (stack.size() == 0)
-		return nullptr;
+bool StateStack::HasState()
+{
+	return stack.size() > 0;
+}
 
-	return &(*multiState);
+StateBase& StateStack::GetState() {
+	assert(HasState());
+
+	return *stack.back();
 };
 
 void StateStack::PushState(StateBase* s)
@@ -15,15 +19,6 @@ void StateStack::PushState(StateBase* s)
 	stack.emplace_back(s);
 	stack.back()->EnterState();
 
-	if (first)
-	{
-		multiState.reset(new MultiState(&window, *stack.back()));
-	}
-	else
-	{
-		multiState->Reset(*stack.back());
-	}
-
 	window.DrawWindow(true);
 }
 
@@ -31,27 +26,22 @@ void StateStack::ReplaceState(StateBase* s)
 {
 	assert(stack.size() > 0);
 
-	PopState();
+	PopState(false);
 	PushState(s);
 }
 
-void StateStack::PopState()
+void StateStack::PopState(bool enter)
 {
 	assert(stack.size() > 0);
 
 	auto& s = stack.back();
 	s->LeaveState();
 
-	if (stack.size() == 1)
-		delete multiState.release();
-
+	window.ClearElements();
 	stack.pop_back();
 
-	if (stack.size() > 0)
-	{
-		multiState->Reset(*stack.back());
-		stack.back()->EnterState(true);
-	}
+	if (HasState() && enter)
+		GetState().EnterState(true);
 
 	window.DrawWindow(true);
 }

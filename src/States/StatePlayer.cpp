@@ -33,12 +33,12 @@ void StatePlayer::UpdateButtons(ButtonListOut out)
 	}, KC_ADD);
 }
 
-void StatePlayer::UpdateFPS()
+void StatePlayer::UpdateFPS(int numFrames)
 {
 	// Calc FPS
 	auto now = high_resolution_clock::now();
 	int diffMs = duration_cast<chrono::milliseconds>(now - timer).count();
-	timerFrames++;
+	timerFrames += numFrames;
 	if (diffMs >= 200) {
 
 		float perFrame = (diffMs / timerFrames);
@@ -82,14 +82,14 @@ void StatePlayer::Draw(Mat& frame)
 		putText(frame, "Press space to play", Point(30, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
 	auto pos = window->GetCurrentPosition();
-	for (auto& set : window->project.sets)
+	for (auto set : window->project.sets)
 	{
-		if (set.timeStart <= pos && set.timeEnd > pos)
+		if (set->timeStart <= pos && set->timeEnd > pos)
 		{
-			if (&set != lastSet)
+			if (set != lastSet)
 			{
 				calculator.Reset();
-				lastSet = &set;
+				lastSet = set;
 			}
 
 			calculator.Draw(set, frame, window->GetCurrentPosition(), false, true);

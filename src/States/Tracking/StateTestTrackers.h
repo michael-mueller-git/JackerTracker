@@ -1,20 +1,25 @@
 #pragma once
 
-#include "StateTracking.h"
+#include "States/StatePlayer.h"
+#include "Model/TrackingRunner.h"
 
-class StateTestTrackers : public StateTracking
+class StateTestTrackers : public StatePlayer
 {
 public:
-	StateTestTrackers(TrackingWindow* window, TrackingSet* set, TrackingTarget* target);
+	StateTestTrackers(TrackingWindow* window, TrackingSetPtr set, TrackingTarget* target);
 	std::string GetName() { return "TestTrackers"; }
 
 	void UpdateButtons(ButtonListOut out);
-
+	void Update();
+	void SetPlaying(bool b);
 	void Draw(cv::Mat& frame);
 	void EnterState(bool again);
 
 protected:
 	void NextFrame() override;
+	void LastFrame() override {} ;
 
 	TrackingTarget* target;
+	TrackingSetPtr set;
+	TrackingRunner runner;
 };

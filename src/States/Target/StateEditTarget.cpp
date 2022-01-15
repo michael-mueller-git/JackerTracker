@@ -16,7 +16,7 @@ using namespace std;
 using namespace cv;
 using namespace OIS;
 
-StateEditTarget::StateEditTarget(TrackingWindow* window, TrackingSet* set, TrackingTarget* target)
+StateEditTarget::StateEditTarget(TrackingWindow* window, TrackingSetPtr set, TrackingTarget* target)
 	:StateBase(window), set(set), target(target)
 {
 
@@ -65,7 +65,7 @@ void StateEditTarget::UpdateButtons(ButtonListOut out)
 				me->target->range = Rect(0, 0, 0, 0);
 			}
 			));
-	}, KC_R);
+	}, KC_G);
 
 
 	GuiButtonExpand* trackerBtn = new GuiButtonExpand(GuiButton::Next(out), "Tracker: " + GetTracker(target->preferredTracker).name);
@@ -179,6 +179,22 @@ bool StateEditTarget::HandleMouse(int e, int x, int y, int f)
 			{
 				target->initialRect = r;
 				target->UpdateType();
+
+				if (target->range.empty())
+				{
+					auto f = window->GetInFrame();
+
+					target->range = Rect(
+						Point(
+							max(0, r.x - 200),
+							max(0, r.y - 200)
+						),
+						Point(
+							min(f.cols, r.x + r.width + 200),
+							min(f.rows, r.y + r.height + 200)
+						)
+					);
+				}
 			}
 		}
 		else

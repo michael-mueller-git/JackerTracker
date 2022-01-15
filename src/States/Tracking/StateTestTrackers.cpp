@@ -9,26 +9,44 @@ using namespace cv;
 using namespace std;
 using namespace chrono;
 
-StateTestTrackers::StateTestTrackers(TrackingWindow* window, TrackingSet* set, TrackingTarget* target)
-	:StateTracking(window, set), target(target)
+StateTestTrackers::StateTestTrackers(TrackingWindow* window, TrackingSetPtr set, TrackingTarget* target)
+	:StatePlayer(window), set(set), target(target), runner(window, set, target, false, true, false)
 {
 
 }
 
+void StateTestTrackers::Update()
+{
+	if (!playing)
+		return;
+
+	auto state = runner.GetState();
+	if (state.framesRdy > 0)
+	{
+		UpdateFPS(state.framesRdy);
+		AskDraw();
+		runner.GetState(true);
+	}
+
+	runner.Update();
+
+	//SyncFps();
+}
+
 void StateTestTrackers::UpdateButtons(ButtonListOut out)
 {
-	StateTracking::UpdateButtons(out);
+	StatePlayer::UpdateButtons(out);
 
 	if (!playing)
 	{
 		auto me = this;
 
-		for (auto& b : trackerBindings)
+		for (auto& b : runner.bindings)
 		{
-			std::unique_ptr<trackerBinding>* bptr = &b;
+			TrackerJTType t = b->trackerStruct.type;
 
-			GuiButton& btn = AddButton(out, "Pick " + b->trackerStruct.name, [me, bptr](auto w) {
-				me->target->preferredTracker = bptr->get()->trackerStruct.type;
+			GuiButton& btn = AddButton(out, "Pick " + b->trackerStruct.name, [me, t](auto w) {
+				me->target->preferredTracker = t;
 				me->Pop();
 			});
 
@@ -40,60 +58,29 @@ void StateTestTrackers::UpdateButtons(ButtonListOut out)
 
 void StateTestTrackers::EnterState(bool again)
 {
-	window->timebar.SelectTrackingSet(set);
+	StatePlayer::EnterState(again);
 
-	cuda::GpuMat gpuFrame = window->GetInFrame();
-
-	constexpr auto types = magic_enum::enum_entries<TrackerJTType>();
-	auto me = this;
-
-	if (trackerBindings.size() > 0)
+	if (!again)
 	{
-		trackerBindings.clear();
-	}
-
-	trackerBindings.reserve(types.size());
-
-	for (auto& t : types)
-	{
-		auto s = GetTracker(t.first);
-		if (s.type == TrackerJTType::TRACKER_TYPE_UNKNOWN)
-			continue;
-
-		if (target->SupportsTrackingType(s.trackingType))
+		if (!runner.Setup())
 		{
-			trackerBindings.emplace_back(make_unique<trackerBinding>(target, s));
-			trackerBindings.back()->tracker->init(gpuFrame);
-			trackerBindings.back()->state->UpdateColor(trackerBindings.size());
+			Pop();
+			return;
 		}
-	}
 
-	if (trackerBindings.size() == 0)
-	{
-		Pop();
-		return;
+		SetPlaying(true);
 	}
+}
 
-	SetPlaying(true);
+void StateTestTrackers::SetPlaying(bool b)
+{
+	StatePlayer::SetPlaying(b);
+	runner.SetRunning(playing);
 }
 
 void StateTestTrackers::NextFrame()
 {
-	cuda::Stream stream;
-
-	window->ReadCleanFrame(stream);
-
-	cuda::GpuMat gpuFrame = window->GetInFrame();
-	time_t time = window->GetCurrentPosition();
-
-	for (auto& b : trackerBindings)
-	{
-		auto now = high_resolution_clock::now();
-		b->tracker->update(gpuFrame, stream);
-		b->lastUpdateMs = duration_cast<chrono::milliseconds>(high_resolution_clock::now() - now).count();
-	}
-
-	stream.waitForCompletion();
+	runner.Update(true);
 	AskDraw();
 }
 
@@ -106,12 +93,5 @@ void StateTestTrackers::Draw(Mat& frame)
 
 	putText(frame, format("FPS=%d", drawFps), Point(30, 120), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
-	int y = 100;
-
-	for (auto& b : trackerBindings)
-	{
-		b->state->Draw(frame);
-		putText(frame, format("%s: %dms", b->tracker->GetName(), b->lastUpdateMs), Point(400, y), FONT_HERSHEY_SIMPLEX, 0.6, b->state->color, 2);
-		y += 20;
-	}
+	runner.Draw(frame);
 }

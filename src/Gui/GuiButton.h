@@ -19,6 +19,7 @@ public:
 	GuiButton(cv::Rect rect, std::function<void()> handler, std::string text);
 	GuiButton(cv::Rect rect, std::function<void()> handler, std::string text, OIS::KeyCode hotHey);
 
+	int GetLayerNum() { return GUI_LAYER_BUTTONS; };
 	virtual void Draw(cv::Mat& frame);
 	bool IsSelected(int x, int y);
 	virtual bool Highlighted();

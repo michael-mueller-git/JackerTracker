@@ -11,12 +11,46 @@ TrackingCalculator::TrackingCalculator()
 
 }
 
-bool TrackingCalculator::Update(TrackingSet& set, time_t t)
+TrackingEvent TrackingCalculator::GetRange(EventListPtr& eventList, time_t at)
 {
-	TrackingTarget* backgroundTarget = set.GetTarget(TARGET_TYPE::TYPE_BACKGROUND);
+	EventPtr rangeEvent = eventList->GetEvent(at, EventType::TET_POSITION_RANGE, nullptr, true);
+	if (rangeEvent)
+		return *rangeEvent;
+
+	int rangeMin = 0, rangeMax = 0;
+	
+	vector<EventPtr> events;
+	eventList->GetEvents(0, at, events);
+
+	for (auto e : events)
+	{
+		if (e->type != EventType::TET_POSITION)
+			continue;
+
+		rangeMin = min((int)e->size, rangeMin);
+		rangeMax = max((int)e->size, rangeMax);
+	}
+
+	TrackingEvent e(
+		EventType::TET_POSITION_RANGE,
+		0
+	);
+
+	e.minDistance = rangeMin;
+	e.maxDistance = rangeMax;
+
+	return e;
+}
+
+bool TrackingCalculator::Update(TrackingSetPtr set, time_t t)
+{
+	lock_guard<mutex> lock(set->events->mtx);
+	auto& events = set->events;
+
+	TrackingTarget* backgroundTarget = set->GetTarget(TARGET_TYPE::TYPE_BACKGROUND);
 	if (backgroundTarget)
 	{
-		auto backgroundResult = backgroundTarget->GetResult(set, t, EventType::TET_SIZE);
+		auto backgroundResult = events->GetEvent(t, EventType::TET_SIZE, backgroundTarget);
 		if (backgroundResult)
 		{
 			if (sizeStart == 0)
@@ -29,26 +63,26 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 				if (scale != newScale)
 				{
 					scale = newScale;
-					TrackingEvent& e = set.AddEvent(EventType::TET_SCALE, t, backgroundTarget);
-					e.size = scale;
+					EventPtr e = events->AddEvent(EventType::TET_SCALE, t, backgroundTarget);
+					e->size = scale;
 				}
 
 			}
 		}
 	}
 
-	TrackingTarget* maleTarget = set.GetTarget(TARGET_TYPE::TYPE_MALE);
-	TrackingTarget* femaleTarget = set.GetTarget(TARGET_TYPE::TYPE_FEMALE);
-	TrackingEvent* maleResult = nullptr;
-	TrackingEvent* femaleResult = nullptr;
-	TrackingEvent* result = nullptr;
+	TrackingTarget* maleTarget = set->GetTarget(TARGET_TYPE::TYPE_MALE);
+	TrackingTarget* femaleTarget = set->GetTarget(TARGET_TYPE::TYPE_FEMALE);
+	EventPtr maleResult = nullptr;
+	EventPtr femaleResult = nullptr;
+	EventPtr result = nullptr;
 
 	if (maleTarget)
-		maleResult = maleTarget->GetResult(set, t, EventType::TET_POINT);
+		maleResult = events->GetEvent(t, EventType::TET_POINT, maleTarget);
 	if (femaleTarget)
-		femaleResult = femaleTarget->GetResult(set, t, EventType::TET_POINT);
+		femaleResult = events->GetEvent(t, EventType::TET_POINT, femaleTarget);
 
-	switch (set.trackingMode) {
+	switch (set->trackingMode) {
 	case TrackingMode::TM_DIAGONAL:
 	case TrackingMode::TM_HORIZONTAL:
 	case TrackingMode::TM_VERTICAL:
@@ -76,7 +110,7 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 	int distance = 0;
 	int x, y;
 
-	switch (set.trackingMode) {
+	switch (set->trackingMode) {
 	case TrackingMode::TM_HORIZONTAL:
 		y = (malePoint.y + femalePoint.y) / 2;
 		malePoint.y = y;
@@ -112,11 +146,11 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 
 	float newMin, newMax;
 
-	TrackingEvent* distanceEvent = set.GetResult(t, EventType::TET_POSITION_RANGE, nullptr, true);
+	EventPtr distanceEvent = events->GetEvent(t, EventType::TET_POSITION_RANGE, nullptr, true);
 
 	if (!distanceEvent)
 	{
-		distanceEvent = &set.AddEvent(EventType::TET_POSITION_RANGE, t);
+		distanceEvent = events->AddEvent(EventType::TET_POSITION_RANGE, t);
 		distanceEvent->minDistance = distance - 1;
 		distanceEvent->maxDistance = distance;
 	}
@@ -127,9 +161,11 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 
 		if (newMin != distanceEvent->minDistance || newMax != distanceEvent->maxDistance)
 		{
-			distanceEvent = &set.AddEvent(EventType::TET_POSITION_RANGE, t);
+			// distanceEvent = events->AddEvent(EventType::TET_POSITION_RANGE, t);
 			distanceEvent->minDistance = newMin;
 			distanceEvent->maxDistance = newMax;
+
+			UpdatePositions(events);
 		}
 	}
 
@@ -142,18 +178,18 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 		if (d < 0 && up)
 		{
 			up = false;
-			TrackingEvent& e = set.AddEvent(EventType::TET_POSITION, t);
-			e.size = distance;
-			e.position = position;
+			EventPtr e = events->AddEvent(EventType::TET_POSITION, t);
+			e->size = distance;
+			e->position = position;
 			lastPositionUpdate = t;
 		}
 		else if (d > 0 && !up)
 		{
 			up = true;
 
-			TrackingEvent& e = set.AddEvent(EventType::TET_POSITION, t);
-			e.size = distance;
-			e.position = position;
+			EventPtr e = events->AddEvent(EventType::TET_POSITION, t);
+			e->size = distance;
+			e->position = position;
 			lastPositionUpdate = t;
 		}
 	//}
@@ -163,29 +199,27 @@ bool TrackingCalculator::Update(TrackingSet& set, time_t t)
 	return true;
 }
 
-void TrackingCalculator::Recalc(TrackingSet& set, time_t t)
+void TrackingCalculator::UpdatePositions(EventListPtr& eventList)
 {
-	TrackingEvent* rangeEvent = set.GetResult(t, EventType::TET_POSITION_RANGE);
-	if (!rangeEvent)
-		return;
+	TrackingEvent rangeEvent = GetRange(eventList, 0);
 
-	vector<TrackingEvent*> events;
-	set.GetEvents(t + 1, set.timeEnd, events);
+	vector<EventPtr> events;
+	eventList->GetEvents(0, 0, events);
 
 	for (auto e : events)
 	{
 		if (e->type == EventType::TET_POSITION_RANGE)
-			return;
+			rangeEvent = GetRange(eventList, e->time);
 
 		if (e->type != EventType::TET_POSITION)
 			continue;
 
-		if (e->size < rangeEvent->minDistance)
+		if (e->size < rangeEvent.minDistance)
 			e->position = 0;
-		else if (e->size > rangeEvent->maxDistance)
+		else if (e->size > rangeEvent.maxDistance)
 			e->position = 1;
 		else
-			e->position = mapValue<int, float>(e->size, rangeEvent->minDistance, rangeEvent->maxDistance, 0, 1);
+			e->position = mapValue<int, float>(e->size, rangeEvent.minDistance, rangeEvent.maxDistance, 0, 1);
 	}
 }
 
@@ -213,7 +247,7 @@ void DrawReferenceLineAngle(Mat& frame, int length, double angle, Point p1, Scal
 	line(frame, p1, p2, color, 8);
 }
 
-void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool livePosition, bool drawState)
+void TrackingCalculator::Draw(TrackingSetPtr set, Mat& frame, time_t t, bool livePosition, bool drawState)
 {
 	int barHeight = 300;
 
@@ -225,21 +259,33 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 		2
 	);
 
-	std::vector<TrackingEvent*> eventsFiltered;
-
 	time_t timeFrom = max(0LL, t - 10000);
 	time_t timeTo = t + 10000;
 
-	set.GetEvents(timeFrom, timeTo, eventsFiltered);
+	std::vector<TrackingEvent> events;
+	EventPtr distanceEvent = nullptr;
+
+	{
+		lock_guard<mutex> lock(set->events->mtx);
+
+		distanceEvent = set->events->GetEvent(t, EventType::TET_POSITION_RANGE, nullptr, true);
+
+		std::vector<EventPtr> eventsFiltered;
+		set->events->GetEvents(timeFrom, timeTo, eventsFiltered);
+		events.reserve(eventsFiltered.size());
+
+		for (auto& e : eventsFiltered)
+			events.push_back(*e);
+	}
 
 	TrackingEvent* e1 = nullptr;
 	TrackingEvent* e2 = nullptr;
 
 	if (!livePosition)
 	{
-		for (int i = 0; i < eventsFiltered.size(); i++)
+		for (int i = 0; i < events.size(); i++)
 		{
-			TrackingEvent& e = *eventsFiltered.at(i);
+			TrackingEvent& e = events.at(i);
 
 			if (e.type != EventType::TET_POSITION)
 				continue;
@@ -291,22 +337,20 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 	TrackingEvent* maleEvent = nullptr;
 	TrackingEvent* femaleEvent = nullptr;
 
-	for (auto ePtr : eventsFiltered)
+	for (auto& e : events)
 	{
-		TrackingEvent& e = *ePtr;
-
 		if (e.time == t && e.type == EventType::TET_POINT)
 		{
-			for (auto& t : set.targets)
+			for (auto& t : set->targets)
 			{
 				if (t.GetGuid() != e.targetGuid)
 					continue;
 					
 				if (t.targetType == TARGET_TYPE::TYPE_MALE)
-					maleEvent = ePtr;
+					maleEvent = &e;
 
 				if (t.targetType == TARGET_TYPE::TYPE_FEMALE)
-					femaleEvent = ePtr;
+					femaleEvent = &e;
 			}
 		}
 
@@ -364,8 +408,6 @@ void TrackingCalculator::Draw(TrackingSet& set, Mat& frame, time_t t, bool liveP
 			}
 		}
 	}
-
-	TrackingEvent* distanceEvent = set.GetResult(t, EventType::TET_POSITION_RANGE, nullptr, true);
 
 	if (!livePosition)
 	{

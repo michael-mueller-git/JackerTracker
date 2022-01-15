@@ -19,11 +19,6 @@ TrackingTarget::TrackingTarget(string guid)
 	
 }
 
-TrackingEvent* TrackingTarget::GetResult(TrackingSet& set, time_t time, EventType type, bool findLast)
-{
-	return set.GetResult(time, type, this, findLast);
-}
-
 void TrackingTarget::Draw(Mat& frame)
 {
 	if (trackingType == TRACKING_TYPE::TYPE_POINTS || trackingType == TRACKING_TYPE::TYPE_BOTH)
