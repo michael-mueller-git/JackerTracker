@@ -21,7 +21,7 @@ bool FrameCache::IsCpu(FrameVariant v)
 
 deque<FrameCache::CacheRecord>::iterator FrameCache::FindCache(cv::cuda::GpuMat frame, FrameVariant v)
 {
-    uint cudaPtr = (uint)frame.ptr<uint>();
+    auto cudaPtr = frame.ptr<uint>();
 
     auto found = find_if(cache.begin(), cache.end(), [cudaPtr, v](auto& c) {
         return c.cudaPtr == cudaPtr && c.variant == v;
@@ -41,7 +41,7 @@ Mat FrameCache::CpuVariant(cv::cuda::GpuMat from, FrameVariant to, cv::cuda::Str
     }
 
 
-    CacheRecord r(true, (uint)from.ptr<uint>(), to);
+    CacheRecord r(true, from.ptr<uint>(), to);
     cuda::GpuMat buffer;
 
     switch (to) {
@@ -75,7 +75,7 @@ cuda::GpuMat FrameCache::GpuVariant(cv::cuda::GpuMat from, FrameVariant to, cv::
     }
 
 
-    CacheRecord r(false, (uint)from.ptr<uint>(), to);
+    CacheRecord r(false, from.ptr<uint>(), to);
     cuda::GpuMat buffer;
 
     switch (to) {

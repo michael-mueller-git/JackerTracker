@@ -9,6 +9,7 @@ class GpuTrackerPoints : public TrackerJT
 {
 public:
     struct Params {
+        Params(){};
         int size = 10;
         int maxLevel = 3;
         int iters = 30;

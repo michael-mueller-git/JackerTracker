@@ -1,6 +1,7 @@
 #include "TrackingSet.h"
 #include "TrackingEvent.h"
 
+#include <thread>
 #include <magic_enum.hpp>
 
 using namespace cv;

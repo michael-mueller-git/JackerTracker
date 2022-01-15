@@ -6,8 +6,16 @@
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/highgui.hpp>
 
+#if WIN32
 #include <Windows.h>
+#endif
 
+#if !WIN32
+#define HWND int
+#ifndef high_resolution_clock
+#define high_resolution_clock steady_clock
+#endif
+#endif
 
 using namespace std;
 using namespace chrono;
@@ -24,7 +32,8 @@ TrackingWindow::TrackingWindow(string fName)
 	videoReader = VideoReader::create(fName);
 
 	//HWND hWnd = cvGetWindowHandle(windowName.c_str());
-
+#if WIN32
+    // TODO implement this for linux
 	try {
 		HWND hWnd = (HWND)FindWindow(NULL, windowName.c_str());
 
@@ -37,6 +46,7 @@ TrackingWindow::TrackingWindow(string fName)
 	{
 		// Input setup error
 	}
+#endif
 
 	setMouseCallback(windowName, &OnClick, this);
 	createTrackbar("FPS", windowName, &project.maxFPS, 120);

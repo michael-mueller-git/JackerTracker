@@ -5,6 +5,13 @@
 #include <opencv2/imgproc.hpp>
 #include <magic_enum.hpp>
 #include <chrono>
+#include <thread>
+
+#if !WIN32
+#ifndef high_resolution_clock
+#define high_resolution_clock steady_clock
+#endif
+#endif
 
 using namespace std;
 using namespace cv;

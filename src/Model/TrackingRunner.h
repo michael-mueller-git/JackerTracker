@@ -4,7 +4,7 @@
 #include "Tracking/Trackers.h"
 #include "Model/Calculator.h"
 #include "Reader/VideoReader.h"
-
+#include <thread>
 #include <opencv2/core/cuda.hpp>
 #include <deque>
 

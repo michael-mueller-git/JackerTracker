@@ -19,12 +19,12 @@ public:
 protected:
     struct CacheRecord
     {
-        CacheRecord(bool isCpu, uint cudaPtr, FrameVariant variant)
+        CacheRecord(bool isCpu, uint *cudaPtr, FrameVariant variant)
             :isCpu(isCpu), cudaPtr(cudaPtr), variant(variant)
         {
         };
 
-        uint cudaPtr;
+        uint *cudaPtr;
 
         cv::cuda::GpuMat gpuFrame;
         cv::Mat cpuFrame;

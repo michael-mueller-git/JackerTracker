@@ -13,6 +13,11 @@
 using namespace std;
 using namespace chrono;
 
+#if !WIN32
+#ifndef high_resolution_clock
+#define high_resolution_clock steady_clock
+#endif
+#endif
 
 simplelogger::Logger* logger = simplelogger::LoggerFactory::CreateConsoleLogger();
 
