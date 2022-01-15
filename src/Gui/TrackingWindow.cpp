@@ -11,7 +11,7 @@
 #endif
 
 #if !WIN32
-#define HWND int
+#include <opencv2/highgui/highgui_c.h>
 #ifndef high_resolution_clock
 #define high_resolution_clock steady_clock
 #endif
@@ -31,11 +31,12 @@ TrackingWindow::TrackingWindow(string fName)
 
 	videoReader = VideoReader::create(fName);
 
-	//HWND hWnd = cvGetWindowHandle(windowName.c_str());
-#if WIN32
-    // TODO implement this for linux
 	try {
+        #if WIN32
 		HWND hWnd = (HWND)FindWindow(NULL, windowName.c_str());
+        #else
+        auto hWnd = cvGetWindowHandle(windowName.c_str());
+        #endif
 
 		inputManager = InputManager::createInputSystem((size_t)hWnd);
 		inputKeyboard = (Keyboard*)inputManager->createInputObject(OISKeyboard, true);
@@ -46,7 +47,6 @@ TrackingWindow::TrackingWindow(string fName)
 	{
 		// Input setup error
 	}
-#endif
 
 	setMouseCallback(windowName, &OnClick, this);
 	createTrackbar("FPS", windowName, &project.maxFPS, 120);
