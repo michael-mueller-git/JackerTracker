@@ -10,9 +10,10 @@ class TrackingCalculator
 public:
 	TrackingCalculator();
 
-	bool Update(TrackingSet& set, time_t t);
-	void Recalc(TrackingSet& set, time_t t);
-	void Draw(TrackingSet& set, cv::Mat& frame, time_t t, bool livePosition = true, bool drawState = false);
+	TrackingEvent GetRange(EventListPtr& eventList, time_t at);
+	bool Update(TrackingSetPtr set, time_t t);
+	void UpdatePositions(EventListPtr& eventList);
+	void Draw(TrackingSetPtr set, cv::Mat& frame, time_t t, bool livePosition = true, bool drawState = false);
 	void Reset()
 	{
 		malePoint = cv::Point();

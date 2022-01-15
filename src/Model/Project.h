@@ -18,9 +18,10 @@ public:
 	void Save();
 	void Save(json& j);
 
-	std::vector<TrackingSet> sets;
+	std::vector<std::shared_ptr<TrackingSet>> sets;
 	int maxFPS = 120;
+	std::string video;
 
 protected:
-	std::string video;
+	
 };

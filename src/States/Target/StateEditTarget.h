@@ -1,28 +1,27 @@
 #pragma once
 
-#include "States.h"
+#include "States/States.h"
 
 #include <vector>
 #include <string>
 #include <functional>
 
 typedef std::function<void(TrackingTarget t)> AddTrackerCallback;
-class StateEditTracker : public StateBase
+class StateEditTarget : public StateBase
 {
 public:
-	StateEditTracker(TrackingWindow* window, TrackingSet* set, TrackingTarget* target);
+	StateEditTarget(TrackingWindow* window, TrackingSetPtr set, TrackingTarget* target);
 
 	void EnterState(bool again);
 
 	void AddPoints(cv::Rect r);
 	void RemovePoints(cv::Rect r);
 
-	bool HandleInput(int c);
 	bool HandleMouse(int e, int x, int y, int f);
 
-	void UpdateButtons(std::vector<GuiButton>& out);
-	void AddGui(cv::Mat& frame);
-	std::string GetName() const { return "EditTracker"; }
+	void UpdateButtons(ButtonListOut out);
+	void Draw(cv::Mat& frame);
+	std::string GetName() { return "EditTracker"; }
 
 protected:
 	cv::Point clickStartPosition;
@@ -35,6 +34,6 @@ protected:
 	bool draggingRect = false;
 	DRAGGING_BUTTON draggingBtn = BUTTON_NONE;
 
-	TrackingSet* set;
+	TrackingSetPtr set;
 	TrackingTarget* target;
 };

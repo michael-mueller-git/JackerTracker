@@ -99,13 +99,13 @@ void Project::Save(json& j)
 	j["sets"] = json::array();
 	j["actions"] = json::array();
 
-	for (auto& s : sets)
+	for (auto s : sets)
 	{
 		json& set = j["sets"][j["sets"].size()];
-		s.Serialize(set);
+		s->Serialize(set);
 
-		vector<TrackingEvent*> events;
-		s.GetEvents(s.timeStart, s.timeEnd, events);
+		vector<EventPtr> events;
+		s->events->GetEvents(s->timeStart, s->timeEnd, events);
 		
 		for (auto& e : events)
 		{

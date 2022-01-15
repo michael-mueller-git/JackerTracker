@@ -1,5 +1,5 @@
 #include "Timebar.h"
-#include "States/StateEditSet.h"
+#include "States/Set/StateEditSet.h"
 #include "TrackingWindow.h"
 
 #include <opencv2/imgproc.hpp>
@@ -7,13 +7,15 @@
 using namespace std;
 using namespace cv;
 
+// Timebar
+
 Timebar::Timebar(TrackingWindow* window)
 	:StateBase(window)
 {
 
 }
 
-void Timebar::UpdateButtons(vector<GuiButton>& out)
+void Timebar::UpdateButtons(ButtonListOut out)
 {
 	auto me = this;
 
@@ -24,54 +26,13 @@ void Timebar::UpdateButtons(vector<GuiButton>& out)
 		20
 	);
 
-	for (auto& s : window->project.sets)
+	for (auto s : window->project.sets)
 	{
-		int x = mapValue<time_t, int>(
-			s.timeStart,
-			0,
-			window->GetDuration(),
-			barRect.x,
-			barRect.x + barRect.width
-			);
-
-		Rect setRect(
-			x - 5,
-			barRect.y - 2,
-			10,
-			barRect.height + 4
-		);
-
-		TrackingSet* setptr = &s;
-
-		GuiButton b;
-		b.text = to_string(s.targets.size());
-		b.textScale = 0.4;
-		b.rect = setRect;
-		b.customHover = true;
-		b.onClick = [me, setptr]() {
-			auto s = me->window->stack.GetState();
-			if (!s)
-				return false;
-
-			if (s->GetName() == "Playing")
-			{
-				me->window->stack.PushState(new StateEditSet(me->window, setptr));
-			}
-			else if (s->GetName() == "EditSet")
-			{
-				me->window->stack.ReplaceState(new StateEditSet(me->window, setptr));
-			}
-
-		};
-
-		if (selectedSet == &s)
-			b.hover = true;
-
-		out.push_back(b);
+		out.emplace_back(new TimebarButton(me->window, s, barRect));
 	}
 }
 
-void Timebar::AddGui(Mat& frame)
+void Timebar::Draw(Mat& frame)
 {
 	int w = frame.cols;
 
@@ -106,13 +67,13 @@ void Timebar::AddGui(Mat& frame)
 		Scalar(0, 0, 0), 2
 	);
 
-	for (auto& s : window->project.sets)
+	for (auto s : window->project.sets)
 	{
-		if (s.targets.size() == 0 || s.timeStart == s.timeEnd)
+		if (s->targets.size() == 0 || s->timeStart == s->timeEnd)
 			continue;
 
 		int x1 = mapValue<time_t, int>(
-			s.timeStart,
+			s->timeStart,
 			0,
 			window->GetDuration(),
 			barRect.x,
@@ -120,7 +81,7 @@ void Timebar::AddGui(Mat& frame)
 			);
 
 		int x2 = mapValue<time_t, int>(
-			s.timeEnd,
+			s->timeEnd,
 			0,
 			window->GetDuration(),
 			barRect.x,
@@ -132,7 +93,7 @@ void Timebar::AddGui(Mat& frame)
 	}
 }
 
-void Timebar::SelectTrackingSet(TrackingSet* s)
+void Timebar::SelectTrackingSet(TrackingSetPtr s)
 {
 	selectedSet = s;
 	if (s)
@@ -142,7 +103,7 @@ void Timebar::SelectTrackingSet(TrackingSet* s)
 	}
 };
 
-TrackingSet* Timebar::GetNextSet()
+TrackingSetPtr Timebar::GetNextSet()
 {
 	if (window->project.sets.size() == 0)
 		return nullptr;
@@ -152,26 +113,26 @@ TrackingSet* Timebar::GetNextSet()
 
 	if (s)
 	{
-		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSet& set) { return &set == s; });
+		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSetPtr set) { return set == s; });
 		assert(it != sets.end());
 		int index = distance(sets.begin(), it);
 		if (index < sets.size() - 1)
-			return &(sets.at(index + 1));
+			return (sets.at(index + 1));
 		else
 			return nullptr;
 	}
 	else
 	{
 		auto t = window->GetCurrentPosition();
-		auto it = find_if(sets.begin(), sets.end(), [t](TrackingSet& set) { return set.timeStart > t; });
+		auto it = find_if(sets.begin(), sets.end(), [t](TrackingSetPtr set) { return set->timeStart > t; });
 		if (it == sets.end())
 			return nullptr;
 
-		return &(*it);
+		return *it;
 	}
 }
 
-TrackingSet* Timebar::GetPreviousSet()
+TrackingSetPtr Timebar::GetPreviousSet()
 {
 	if (window->project.sets.size() == 0)
 		return nullptr;
@@ -182,11 +143,11 @@ TrackingSet* Timebar::GetPreviousSet()
 
 	if (s)
 	{
-		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSet& set) { return &set == s; });
+		auto it = find_if(sets.begin(), sets.end(), [s](TrackingSetPtr set) { return set == s; });
 		assert(it != sets.end());
 		int index = distance(sets.begin(), it);
 		if (index > 0)
-			return &(sets.at(index - 1));
+			return (sets.at(index - 1));
 		else
 			return nullptr;
 	}
@@ -195,10 +156,56 @@ TrackingSet* Timebar::GetPreviousSet()
 
 		auto t = window->GetCurrentPosition();
 
-		auto it = find_if(sets.rbegin(), sets.rend(), [t](TrackingSet& set) { return set.timeStart < t; });
+		auto it = find_if(sets.rbegin(), sets.rend(), [t](TrackingSetPtr set) { return set->timeStart < t; });
 		if (it == sets.rend())
 			return nullptr;
 
-		return &(*it);
+		return *it;
 	}
+}
+
+// TimebarButton
+
+TimebarButton::TimebarButton(TrackingWindow* w, TrackingSetPtr s, Rect bar)
+	:w(w), set(s)
+{
+	int x = mapValue<time_t, int>(
+		s->timeStart,
+		0,
+		w->GetDuration(),
+		bar.x,
+		bar.x + bar.width
+	);
+
+	rect = Rect(
+		x - 5,
+		bar.y - 2,
+		10,
+		bar.height + 4
+	);
+
+	text = to_string(s->targets.size());
+	textScale = 0.3;
+}
+
+void TimebarButton::Handle()
+{
+	if (!w->stack.HasState())
+		return;
+	
+	StateBase& s = w->stack.GetState();
+	
+	if (s.GetName() == "Playing")
+	{
+		w->PushState(new StateEditSet(w, set));
+	}
+	else if (s.GetName() == "EditSet")
+	{
+		w->stack.ReplaceState(new StateEditSet(w, set));
+	}
+}
+
+bool TimebarButton::Highlighted()
+{
+	return w->timebar.GetSelectedSet() == set;
 }

@@ -1,34 +1,24 @@
 #include "StateStack.h"
 #include "TrackingWindow.h"
 
-StateBase* StateStack::GetState() {
-	if (stack.size() == 0)
-		return nullptr;
+bool StateStack::HasState()
+{
+	return stack.size() > 0;
+}
 
-	if (!multiState)
-	{
-		multiState = new MultiState(&window, stack.back());
-		multiState->AddState(new StateGlobal(&window), true);
-		multiState->AddState(&window.timebar, false);
-	}
+StateBase& StateStack::GetState() {
+	assert(HasState());
 
-	dirty = false;
-
-	return multiState;
+	return *stack.back();
 };
 
 void StateStack::PushState(StateBase* s)
 {
-	if (multiState)
-	{
-		delete multiState;
-		multiState = nullptr;
-	}
+	bool first = stack.size() == 0;
 
-	dirty = true;
+	stack.emplace_back(s);
+	stack.back()->EnterState();
 
-	stack.push_back(s);
-	s->EnterState();
 	window.DrawWindow(true);
 }
 
@@ -36,33 +26,22 @@ void StateStack::ReplaceState(StateBase* s)
 {
 	assert(stack.size() > 0);
 
-	PopState();
+	PopState(false);
 	PushState(s);
 }
 
-void StateStack::PopState()
+void StateStack::PopState(bool enter)
 {
 	assert(stack.size() > 0);
 
-	auto s = stack.back();
-	stack.pop_back();
+	auto& s = stack.back();
 	s->LeaveState();
-	delete s;
 
-	if (multiState)
-	{
-		delete multiState;
-		multiState = nullptr;
-	}
+	window.ClearElements();
+	stack.pop_back();
 
-	dirty = true;
-
-	if (stack.size() > 0)
-	{
-		s = stack.back();
-		s->EnterState(true);
-		
-	}
+	if (HasState() && enter)
+		GetState().EnterState(true);
 
 	window.DrawWindow(true);
 }

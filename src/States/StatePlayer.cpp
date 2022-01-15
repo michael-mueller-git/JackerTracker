@@ -1,5 +1,5 @@
 #include "StatePlayer.h"
-#include "StateEditSet.h"
+#include "Set/StateEditSet.h"
 #include "Gui/TrackingWindow.h"
 
 #include <chrono>
@@ -9,6 +9,7 @@
 using namespace std;
 using namespace chrono;
 using namespace cv;
+using namespace OIS;
 
 // StatePlayer
 
@@ -24,18 +25,21 @@ void StatePlayer::SetPlaying(bool p)
 	window->SetPlaying(p); 
 }
 
-void StatePlayer::UpdateButtons(vector<GuiButton>& out)
+void StatePlayer::UpdateButtons(ButtonListOut out)
 {
 	StateBase::UpdateButtons(out);
-	AddButton(out, "Add tracking", '+');
+	
+	AddButton(out, "Add tracking", [](auto w) {
+		w->PushState(new StateEditSet(w, w->AddSet()));
+	}, KC_ADD);
 }
 
-void StatePlayer::UpdateFPS()
+void StatePlayer::UpdateFPS(int numFrames)
 {
 	// Calc FPS
 	auto now = steady_clock::now();
 	int diffMs = duration_cast<chrono::milliseconds>(now - timer).count();
-	timerFrames++;
+	timerFrames += numFrames;
 	if (diffMs >= 200) {
 
 		float perFrame = (diffMs / timerFrames);
@@ -61,14 +65,14 @@ void StatePlayer::Update()
 
 void StatePlayer::LastFrame()
 {
-	time_t time = window->GetCurrentPosition() - 200;
+	time_t time = window->GetCurrentPosition() - 4000;
 	if (time >= 0)
 		window->SetPosition(time);
 
-	window->DrawWindow();
+	AskDraw();
 }
 
-void StatePlayer::AddGui(Mat& frame)
+void StatePlayer::Draw(Mat& frame)
 {
 	if (playing)
 	{
@@ -79,14 +83,14 @@ void StatePlayer::AddGui(Mat& frame)
 		putText(frame, "Press space to play", Point(30, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
 
 	auto pos = window->GetCurrentPosition();
-	for (auto& set : window->project.sets)
+	for (auto set : window->project.sets)
 	{
-		if (set.timeStart <= pos && set.timeEnd > pos)
+		if (set->timeStart <= pos && set->timeEnd > pos)
 		{
-			if (&set != lastSet)
+			if (set != lastSet)
 			{
 				calculator.Reset();
-				lastSet = &set;
+				lastSet = set;
 			}
 
 			calculator.Draw(set, frame, window->GetCurrentPosition(), false, true);
@@ -95,9 +99,9 @@ void StatePlayer::AddGui(Mat& frame)
 	}
 }
 
-bool StatePlayer::HandleInput(int c)
+bool StatePlayer::HandleStateInput(OIS::KeyCode c)
 {
-	if (c == ' ')
+	if (c == KC_SPACE)
 	{
 		SetPlaying(!playing);
 		window->DrawWindow(true);
@@ -110,22 +114,15 @@ bool StatePlayer::HandleInput(int c)
 		return true;
 	}
 
-	if (c == '+')
-	{
-		auto s = window->AddSet();
-		window->stack.PushState(new StateEditSet(window, s));
-		return true;
-	}
-
 	// Left
-	if (c == 2424832)
+	if (c == KC_LEFT)
 	{
 		LastFrame();
 		return true;
 	}
 	
 	// Right
-	if (c == 2555904)
+	if (c == KC_RIGHT)
 	{
 		NextFrame();
 		return true;
@@ -166,5 +163,5 @@ void StatePlayerImpl::NextFrame()
 {
 	window->ReadCleanFrame();
 	window->UpdateTrackbar();
-	window->DrawWindow();
+	AskDraw();
 }

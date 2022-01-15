@@ -23,6 +23,7 @@
 #include "nvcuvid.h"
 #include "NvCodecUtils.h"
 #include <map>
+#include <deque>
 
 #include <opencv2/core/cuda.hpp>
 
@@ -191,23 +192,7 @@ public:
     *   @brief  This function returns a decoded frame and timestamp. This function should be called in a loop for
     *   fetching all the frames that are available for display.
     */
-    cv::cuda::GpuMat* GetFrame(int64_t* pTimestamp = nullptr);
-
-
-    /**
-    *   @brief  This function decodes a frame and returns the locked frame buffers
-    *   This makes the buffers available for use by the application without the buffers
-    *   getting overwritten, even if subsequent decode calls are made. The frame buffers
-    *   remain locked, until UnlockFrame() is called
-    */
-    cv::cuda::GpuMat* GetLockedFrame(int64_t* pTimestamp = nullptr);
-
-    /**
-    *   @brief  This function unlocks the frame buffer and makes the frame buffers available for write again
-    *   @param  ppFrame - pointer to array of frames that are to be unlocked	
-    *   @param  nFrame - number of frames to be unlocked
-    */
-    void UnlockFrame(cv::cuda::GpuMat **pFrame);
+    cv::cuda::GpuMat GetFrame(int64_t* pTimestamp = nullptr);
 
     /**
     *   @brief  This function allows app to set decoder reconfig params
@@ -235,6 +220,8 @@ public:
     // Session overhead refers to decoder initialization and deinitialization time
     static void addDecoderSessionOverHead(int sessionID, int64_t duration) { sessionOverHead[sessionID] += duration; }
     static int64_t getDecoderSessionOverHead(int sessionID) { return sessionOverHead[sessionID]; }
+
+    int NumFrames();
 
 private:
     int decoderSessionID; // Decoder session identifier. Used to gather session level stats.
@@ -305,14 +292,19 @@ private:
     int m_nBPP = 1;
     CUVIDEOFORMAT m_videoFormat = {};
     Rect m_displayRect = {};
-    // stock of frames
-    std::vector<cv::cuda::GpuMat*> m_vpFrame;
-    // timestamps of decoded frames
-    std::vector<int64_t> m_vTimestamp;
-    int m_nDecodedFrame = 0, m_nDecodedFrameReturned = 0;
+
+    struct gpuFrameStruct
+    {
+        cv::cuda::GpuMat frame;
+        int64_t timeStamp;
+    };
+
+    std::mutex frameMtx;
+    std::deque<gpuFrameStruct> frameQueue;
+    
     int m_nDecodePicCnt = 0, m_nPicNumInDecodeOrder[32];
     bool m_bEndDecodeDone = false;
-    std::mutex m_mtxVPFrame;
+    
     int m_nFrameAlloc = 0;
     cudaStream_t m_cuvidStream = nullptr;
     bool m_bDeviceFramePitched = false;

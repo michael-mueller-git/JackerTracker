@@ -43,7 +43,7 @@ public:
 
 	}
 
-	void SnapResult(TrackingSet& set, time_t time);
+	void SnapResult(EventListPtr& events, time_t time);
 
 protected:
 	TrackingTarget& parent;

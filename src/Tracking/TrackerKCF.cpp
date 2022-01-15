@@ -88,10 +88,9 @@ GpuTrackerKCFImpl::GpuTrackerKCFImpl(const TrackerKCF::Params& parameters, Track
     * - creating a gaussian response for the training ground-truth
     * - perform FFT to the gaussian response
     */
-void GpuTrackerKCFImpl::initInternal(void* imagePtr)
+void GpuTrackerKCFImpl::initGpu(cuda::GpuMat image)
 {
     Rect& boundingBox = state.rect;
-    cuda::GpuMat& image = *(cuda::GpuMat*)imagePtr;
 
     frame = 0;
     roi.x = cvRound(boundingBox.x);
@@ -180,10 +179,8 @@ void GpuTrackerKCFImpl::initInternal(void* imagePtr)
 /*
     * Main part of the KCF algorithm
     */
-bool GpuTrackerKCFImpl::updateInternal(void* imagePtr)
+bool GpuTrackerKCFImpl::updateGpu(cuda::GpuMat gpuImage)
 {
-    cuda::GpuMat& gpuImage = *(cuda::GpuMat*)imagePtr;
-
     double minVal, maxVal;	// min-max response
     Point minLoc, maxLoc;	// min-max location
 

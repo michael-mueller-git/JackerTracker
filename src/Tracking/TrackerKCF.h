@@ -22,8 +22,8 @@ public:
 
     GpuTrackerKCFImpl(const TrackerKCF::Params& parameters, TrackingTarget& target, TrackingStatus& state);
 
-    virtual void initInternal(void* imagePtr);
-    virtual bool updateInternal(void* imagePtr);
+    virtual void initGpu(cv::cuda::GpuMat image);
+    virtual bool updateGpu(cv::cuda::GpuMat image);
 
     TrackerKCF::Params params;
 

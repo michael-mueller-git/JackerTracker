@@ -233,16 +233,12 @@ public:
     int GetFrameSize() {
         return nWidth * (nHeight + nChromaHeight) * nBPP;
     }
-    bool Seek(int64_t pts, bool backwards) {
+    bool Seek(int64_t ptsMs) {
 
-        pts = pts / timeBase / userTimeScale;
-
-        int flags = 0;
-        if (backwards)
-            flags |= AVSEEK_FLAG_BACKWARD;
+        int64_t pts = ptsMs / timeBase / userTimeScale;
 
         //int ret = av_seek_frame(fmtc, iVideoStream, pts, flags);
-        int ret = avformat_seek_file(fmtc, iVideoStream, pts, pts, pts, flags);
+        int ret = avformat_seek_file(fmtc, iVideoStream, pts, pts, pts, AVSEEK_FLAG_BACKWARD);
         if (ret < 0)
         {
             LOG(ERROR) << "FFmpeg seek failed";
@@ -294,10 +290,11 @@ public:
             }
             ck(av_bsf_send_packet(bsfc, &pkt));
             ck(av_bsf_receive_packet(bsfc, &pktFiltered));
+            
             *ppVideo = pktFiltered.data;
             *pnVideoBytes = pktFiltered.size;
             if (pts)
-                *pts = (int64_t) (pktFiltered.pts * userTimeScale * timeBase);
+                *pts = (int64_t) (pktFiltered.dts * userTimeScale * timeBase);
         } else {
 
             if (bMp4MPEG4 && (frameCount == 0)) {
@@ -327,7 +324,7 @@ public:
             }
 
             if (pts)
-                *pts = (int64_t)(pkt.pts * userTimeScale * timeBase);
+                *pts = (int64_t)(pkt.dts * userTimeScale * timeBase);
         }
 
         frameCount++;
