@@ -16,3 +16,6 @@
 [submodule "lib/goturn"]
 	path = lib/goturn
 	url = https://github.com/Mogball/goturn-files.git
+[submodule "lib/OIS"]
+	path = lib/OIS
+	url = https://github.com/wgois/OIS.git
